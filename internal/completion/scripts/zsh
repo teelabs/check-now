@@ -4,7 +4,7 @@ _check-now() {
   local -a commands shells plugins flags
   commands=(shell refresh dismiss list doctor plugin completion)
   shells=(bash zsh fish powershell pwsh)
-  plugins=(node bun deno fnm codex)
+  plugins=(node bun deno fnm codex claude)
   flags=(--force --background --id --name --description --tool --source-url --runtime --manager --capability --non-interactive)
   if (( CURRENT == 2 )); then _describe 'command' commands; return; fi
   case $words[2] in

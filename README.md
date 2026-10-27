@@ -94,15 +94,17 @@ All variables are optional. Invalid duration values fall back to their defaults.
 | `CHECK_NOW_DENO_RELEASE_URL` | Deno's official GitHub releases API | Deno release endpoint override for fixtures or compatible mirrors. |
 | `CHECK_NOW_FNM_RELEASE_URL` | fnm's official GitHub releases API | fnm release endpoint override for fixtures or compatible mirrors. |
 | `CHECK_NOW_CODEX_RELEASE_URL` | Codex's official GitHub releases API | Codex release endpoint override for fixtures or compatible mirrors. |
+| `CHECK_NOW_CLAUDE_RELEASE_URL` | Claude Code's official GitHub releases API | Claude Code release endpoint override for fixtures or compatible mirrors. |
 | `CHECK_NOW_NODE_TARGET` | unset | Synthetic Node target for offline tests. Do not use as production detection input. |
 | `CHECK_NOW_BUN_TARGET` | unset | Synthetic Bun target for offline tests. Do not use as production detection input. |
 | `CHECK_NOW_DENO_TARGET` | unset | Synthetic Deno target for offline tests. Do not use as production detection input. |
 | `CHECK_NOW_FNM_TARGET` | unset | Synthetic fnm target for offline tests. Do not use as production detection input. |
 | `CHECK_NOW_CODEX_TARGET` | unset | Synthetic Codex target for offline tests. Do not use as production detection input. |
+| `CHECK_NOW_CLAUDE_TARGET` | unset | Synthetic Claude Code target for offline tests. Do not use as production detection input. |
 
 `install.sh` also reads the standard shell variables `SHELL`, `BASH_ENV`, and `ZDOTDIR` when detecting the profile to report or update. `HOME` is used by the shell and installer defaults. These are not check-now-specific configuration knobs.
 
-Built-in plugins query their official release sources at refresh time. Node prefers a proven `fnm` or `nvm` installation and queries that manager's remote catalog. Network or parsing failures produce `unknown`; they are never treated as `up_to_date`.
+Built-in plugins query their official release sources at refresh time. Node prefers a proven `fnm` or `nvm` installation and queries that manager's remote catalog. Claude Code uses the official `claude --version` probe and release feed; its update command is not emitted unless installation ownership is proven. Network or parsing failures produce `unknown`; they are never treated as `up_to_date`.
 
 When a checker can identify more than one useful target, `check-now shell` renders an aligned table with the tool name, current version, target version/track, safe update command, and source URL. For Node this can show both the newest release in the current major line and the newest release overall. A same-major target disappears as soon as the live current probe reaches it; a newer latest-major target remains informational. Shared name, current version, and source values are centered across grouped rows.
 

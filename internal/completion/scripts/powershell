@@ -2,7 +2,7 @@
 $script:CheckNowCompletion = {
   param($wordToComplete, $commandAst, $cursorPosition)
   $commands = 'shell','refresh','dismiss','list','doctor','plugin','completion'
-  $plugins = 'node','bun','deno','fnm','codex'
+  $plugins = 'node','bun','deno','fnm','codex','claude'
   $shells = 'bash','zsh','fish','powershell','pwsh'
   $flags = '--force','--background','--id','--name','--description','--tool','--source-url','--runtime','--manager','--capability','--non-interactive'
   $tokens = $commandAst.CommandElements | ForEach-Object { $_.Extent.Text }

@@ -8,6 +8,7 @@ All notable changes to this project are documented here.
 
 - The update table now shows the installed `Current` version separately from each semantic `Target`.
 - Built-in checkers now resolve current releases from official Node.js, Bun, Deno, fnm, and Codex release sources.
+- Added a conservative built-in Claude Code checker using `claude --version` and the official release feed.
 - Node detection now uses proven fnm or nvm installation ownership when available.
 - Deterministic offline fixtures cover release lookup, manager selection, protocol whitespace, and offline failures.
 - Optional multi-target update choices and a readable terminal update table.
