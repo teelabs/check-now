@@ -1,11 +1,11 @@
 # Plugin development
 
-Create an offline-safe plugin with `check-now plugin create <id>`. Required fields are ID, display name, and one-sentence description. Optional command, source URL, and manager fields can be left blank. Runtime defaults to `shell`; capabilities default to `refresh`.
+Create an offline-safe plugin with `check-now plugin create <id>`. Required fields are ID, display name, and one-sentence description. Optional command, source URL, and manager fields can be left blank. Runtime defaults to `shell`; capabilities default to `current,refresh`.
 
 Non-interactive example:
 
 ```sh
-check-now plugin create nodejs --name 'Node.js' --description 'Checks Node.js installations' --tool node --source-url https://nodejs.org --runtime shell --manager fnm --capability refresh --non-interactive
+check-now plugin create nodejs --name 'Node.js' --description 'Checks Node.js installations' --tool node --source-url https://nodejs.org --runtime shell --manager fnm --capability current,refresh --non-interactive
 ```
 
 The command creates `plugin.sh`, `README.md`, `AGENTS.md`, and executable `test.sh` under `plugins/<id>`. Existing folders require `--force`.

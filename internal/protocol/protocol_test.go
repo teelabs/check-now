@@ -52,3 +52,14 @@ func TestDecodeResultAcceptsOptionalUpdateChoices(t *testing.T) {
 		t.Fatalf("updates=%+v", r.Updates)
 	}
 }
+
+func TestValidateRequestAcceptsCurrentAndRefreshOnly(t *testing.T) {
+	for _, mode := range []string{ModeCurrent, ModeRefresh} {
+		if err := ValidateRequest(Request{Protocol: Version, ID: "tool", Mode: mode}); err != nil {
+			t.Fatalf("mode %s: %v", mode, err)
+		}
+	}
+	if err := ValidateRequest(Request{Protocol: Version, ID: "tool", Mode: "bogus"}); err == nil {
+		t.Fatal("unsupported mode accepted")
+	}
+}

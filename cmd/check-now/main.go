@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"check-now/internal/app"
+	"check-now/internal/completion"
 	"check-now/internal/discovery"
 	"check-now/internal/runner"
 	"check-now/internal/scaffold"
@@ -19,6 +20,13 @@ func main() {
 	if len(os.Args) < 2 {
 		usage()
 		os.Exit(2)
+	}
+	if os.Args[1] == "completion" {
+		if err := completionCommand(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "check-now:", err)
+			os.Exit(2)
+		}
+		return
 	}
 	exe, _ := os.Executable()
 	builtin := os.Getenv("CHECK_NOW_BUILTIN_PLUGIN_DIR")
@@ -50,7 +58,25 @@ func main() {
 	case "shell":
 		err = a.Shell(context.Background())
 	case "refresh":
-		err = a.Refresh(context.Background(), len(os.Args) > 2 && os.Args[2] == "--force")
+		background := len(os.Args) > 2 && os.Args[2] == "--background"
+		if background {
+			perPlugin := app.DurationEnv("CHECK_NOW_PLUGIN_TIMEOUT", 5*time.Second)
+			if perPlugin <= 0 {
+				perPlugin = 5 * time.Second
+			}
+			deadline := perPlugin * time.Duration(len(plugins)+1)
+			ctx, cancel := context.WithTimeout(context.Background(), deadline)
+			defer cancel()
+			err = a.RefreshBackground(ctx)
+		} else {
+			err = a.Refresh(context.Background(), len(os.Args) > 2 && os.Args[2] == "--force")
+		}
+	case "dismiss":
+		if len(os.Args) != 3 {
+			usage()
+			os.Exit(2)
+		}
+		err = a.Dismiss(os.Args[2])
 	case "list":
 		for _, p := range plugins {
 			fmt.Printf("%s\t%s\n", discovery.ID(p), p)
@@ -87,7 +113,7 @@ func createPlugin(args []string) error {
 	f.StringVar(&o.SourceURL, "source-url", "", "optional official source URL")
 	f.StringVar(&o.Runtime, "runtime", "shell", "runtime (default: shell)")
 	f.StringVar(&o.Manager, "manager", "", "optional installation manager")
-	f.StringVar(&caps, "capability", "refresh", "capability (default: refresh)")
+	f.StringVar(&caps, "capability", "current,refresh", "capabilities (default: current,refresh)")
 	f.BoolVar(&o.Force, "force", false, "replace an existing plugin directory")
 	f.BoolVar(&nonInteractive, "non-interactive", false, "do not prompt")
 	if err := f.Parse(args); err != nil {
@@ -102,7 +128,7 @@ func createPlugin(args []string) error {
 		promptPlugin(&o, &caps, bufio.NewReader(os.Stdin))
 	}
 	if caps == "" {
-		o.Capabilities = []string{"refresh"}
+		o.Capabilities = []string{"current", "refresh"}
 	} else {
 		o.Capabilities = splitCaps(caps)
 	}
@@ -165,5 +191,34 @@ func pluginRoot() string {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: check-now {shell|refresh [--force]|list|doctor|plugin create <id> [flags]}")
+	fmt.Fprintln(os.Stderr, "usage: check-now {shell|refresh [--force]|dismiss <plugin-id>|list|doctor|plugin create <id> [flags]|completion [bash|zsh|fish|powershell|pwsh]}")
+}
+
+func completionCommand(args []string) error {
+	if len(args) > 1 {
+		return fmt.Errorf("completion accepts at most one shell argument (supported: %s)", strings.Join(completion.SupportedShells(), ", "))
+	}
+	shell := ""
+	if len(args) == 1 {
+		shell = args[0]
+	} else {
+		env := make(map[string]string)
+		for _, entry := range os.Environ() {
+			key, value, ok := strings.Cut(entry, "=")
+			if ok {
+				env[key] = value
+			}
+		}
+		var err error
+		shell, err = completion.DetectShell(env)
+		if err != nil {
+			return err
+		}
+	}
+	script, err := completion.Script(shell)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprint(os.Stdout, script)
+	return err
 }

@@ -20,3 +20,14 @@ func TestPolicies(t *testing.T) {
 		t.Fatal("malformed version accepted")
 	}
 }
+
+func TestPrereleaseIdentifiersUseSemverOrdering(t *testing.T) {
+	newer, err := Latest("1.0.0-alpha.2", "1.0.0-alpha.10")
+	if err != nil || !newer {
+		t.Fatalf("alpha.10 should follow alpha.2: newer=%v err=%v", newer, err)
+	}
+	newer, err = Latest("1.0.0-alpha", "1.0.0-alpha.1")
+	if err != nil || !newer {
+		t.Fatalf("alpha.1 should follow alpha: newer=%v err=%v", newer, err)
+	}
+}

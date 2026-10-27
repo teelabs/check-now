@@ -6,7 +6,15 @@ request=$(cat)
 now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 mode=$(printf '%s' "$request" | tr '\n' ' ' | sed -n 's/.*"mode"[[:space:]]*:[[:space:]]*"\([^" ]*\)".*/\1/p')
 case "$mode" in
-  metadata) printf '%s\n' '{"protocol":1,"id":"node","name":"Node","description":"Checks Node installations","tool":"node","source_url":"https://nodejs.org/en/download","runtime":"shell","capabilities":["refresh"]}'; exit 0 ;;
+    metadata) printf '%s\n' '{"protocol":1,"id":"node","name":"Node","description":"Checks Node installations","tool":"node","source_url":"https://nodejs.org/en/download","runtime":"shell","capabilities":["current","refresh"]}'; exit 0 ;;
+  current)
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+      printf '{"protocol":1,"id":"%s","status":"not_installed","tool":"%s","checked_at":"%s"}\n' "$id" "$name" "$now"
+    else
+      v=$($cmd --version 2>/dev/null | head -n 1 | sed 's/[^0-9]*\([0-9][0-9.]*\).*/\1/' || true)
+      if [ -n "$v" ]; then printf '{"protocol":1,"id":"%s","status":"up_to_date","tool":"%s","installation_kind":"runtime","current_version":"%s","checked_at":"%s"}\n' "$id" "$name" "$v" "$now"; else printf '{"protocol":1,"id":"%s","status":"unknown","tool":"%s","checked_at":"%s"}\n' "$id" "$name" "$now"; fi
+    fi
+    exit 0 ;;
   refresh) ;;
   *) echo 'invalid request mode' >&2; exit 2 ;;
 esac

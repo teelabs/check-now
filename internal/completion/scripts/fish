@@ -1,0 +1,9 @@
+# check-now completion
+# refresh --force is represented by Fish's -l force declaration below.
+complete -c check-now -f -n '__fish_use_subcommand' -a 'shell refresh dismiss list doctor plugin completion'
+complete -c check-now -f -n '__fish_seen_subcommand_from completion' -a 'bash zsh fish powershell pwsh'
+complete -c check-now -f -n '__fish_seen_subcommand_from refresh' -l force -d 'force refresh'
+complete -c check-now -f -n '__fish_seen_subcommand_from refresh' -l background -d 'refresh in background'
+complete -c check-now -f -n '__fish_seen_subcommand_from dismiss' -a 'node bun deno fnm codex'
+complete -c check-now -f -n '__fish_seen_subcommand_from plugin; and string match -q create (commandline -opc)[3]' -a 'node bun deno fnm codex'
+complete -c check-now -f -n '__fish_seen_subcommand_from plugin' -l id -l name -l description -l tool -l source-url -l runtime -l manager -l capability -l non-interactive -l force

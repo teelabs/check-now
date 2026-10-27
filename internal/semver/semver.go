@@ -50,10 +50,40 @@ func (v Version) Compare(o Version) int {
 	if o.Pre == "" {
 		return -1
 	}
-	if v.Pre < o.Pre {
+	va, vb := strings.Split(v.Pre, "."), strings.Split(o.Pre, ".")
+	for i := 0; i < len(va) && i < len(vb); i++ {
+		a, b := va[i], vb[i]
+		an, ae := strconv.Atoi(a)
+		bn, be := strconv.Atoi(b)
+		if ae == nil && be == nil {
+			if an != bn {
+				if an < bn {
+					return -1
+				}
+				return 1
+			}
+			continue
+		}
+		if ae == nil && be != nil {
+			return -1
+		}
+		if ae != nil && be == nil {
+			return 1
+		}
+		if a != b {
+			if a < b {
+				return -1
+			}
+			return 1
+		}
+	}
+	if len(va) < len(vb) {
 		return -1
 	}
-	return 1
+	if len(va) > len(vb) {
+		return 1
+	}
+	return 0
 }
 func Latest(current, target string) (bool, error) {
 	a, e := Parse(current)

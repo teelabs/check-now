@@ -5,6 +5,7 @@ import (
 	"check-now/internal/discovery"
 	"check-now/internal/protocol"
 	"check-now/internal/runner"
+	"check-now/internal/semver"
 	"context"
 	"errors"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -22,11 +24,30 @@ type App struct {
 	Timeout time.Duration
 }
 
+var startBackgroundRefresh = func(executable string) error {
+	cmd := exec.Command(executable, "refresh", "--background")
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	return cmd.Start()
+}
+
 func New(plugins []string, cacheDir string, stale, timeout time.Duration) App {
 	return App{plugins, cache.New(cacheDir, stale), timeout}
 }
 func (a App) Refresh(ctx context.Context, force bool) error {
-	unlock, e := a.Store.Lock("refresh", a.Timeout+time.Second)
+	return a.refresh(ctx, force, false)
+}
+
+func (a App) RefreshBackground(ctx context.Context) error {
+	return a.refresh(ctx, false, true)
+}
+
+func (a App) refresh(ctx context.Context, force, background bool) error {
+	wait := a.Timeout + time.Second
+	if background {
+		wait = 0
+	}
+	unlock, e := a.Store.Lock("refresh", wait)
 	if e != nil {
 		return e
 	}
@@ -34,13 +55,24 @@ func (a App) Refresh(ctx context.Context, force bool) error {
 	var failures []error
 	for _, p := range a.Plugins {
 		id := discovery.ID(p)
-		old, _ := a.Store.ReadAny(id)
+		old, _ := a.Store.ReadTarget(id)
+		if force {
+			c := a.Store.ReadControl(id)
+			c.Dismissed = false
+			if err := a.Store.WriteControl(id, c); err != nil {
+				return err
+			}
+		}
 		if !force {
-			if _, ok := a.Store.Read(id); ok {
+			if _, ok := a.Store.ReadTargetFresh(id); ok {
 				continue
 			}
 		}
-		req := protocol.Request{Protocol: protocol.Version, ID: id, Mode: "refresh", Timestamp: time.Now().UTC().Format(time.RFC3339), Prior: &old}
+		var prior *protocol.Result
+		if old.ID == id {
+			prior = &old
+		}
+		req := protocol.Request{Protocol: protocol.Version, ID: id, Mode: protocol.ModeRefresh, Timestamp: time.Now().UTC().Format(time.RFC3339), Prior: prior}
 		r, e := runner.Runner{Timeout: a.Timeout}.Run(ctx, p, req)
 		if e != nil {
 			fmt.Fprintf(os.Stderr, "check-now: %s: %v\n", id, e)
@@ -51,7 +83,15 @@ func (a App) Refresh(ctx context.Context, force bool) error {
 			fmt.Fprintf(os.Stderr, "check-now: %s: preserving previous cache after unknown refresh\n", id)
 			continue
 		}
-		if e := a.Store.Write(r); e != nil {
+		previous := a.Store.ReadControl(id)
+		if old.ID != id || cache.Fingerprint(old) != cache.Fingerprint(r) {
+			previous.Dismissed = false
+		}
+		previous.Fingerprint = cache.Fingerprint(r)
+		if e := a.Store.WriteTarget(r); e != nil {
+			return e
+		}
+		if e := a.Store.WriteControl(id, previous); e != nil {
 			return e
 		}
 	}
@@ -61,39 +101,132 @@ func (a App) Refresh(ctx context.Context, force bool) error {
 	return nil
 }
 func (a App) Shell(ctx context.Context) error {
-	stale := false
+	type shellResult struct {
+		index        int
+		visible      *protocol.Result
+		needsRefresh bool
+	}
+	results := make(chan shellResult, len(a.Plugins))
+	var wg sync.WaitGroup
+	for i, p := range a.Plugins {
+		wg.Add(1)
+		go func(index int, plugin string) {
+			defer wg.Done()
+			id := discovery.ID(plugin)
+			current, currentErr := runner.Runner{Timeout: a.Timeout}.Run(ctx, plugin, protocol.Request{Protocol: protocol.Version, ID: id, Mode: protocol.ModeCurrent, Timestamp: time.Now().UTC().Format(time.RFC3339)})
+			if currentErr == nil {
+				_ = a.Store.WriteCurrent(current)
+			}
+			target, ok := a.Store.ReadTarget(id)
+			if !ok {
+				results <- shellResult{index: index, needsRefresh: true}
+				return
+			}
+			t, targetErr := time.Parse(time.RFC3339, target.CheckedAt)
+			stale := targetErr != nil || time.Since(t) > a.Store.Stale
+			if currentErr != nil || targetErr != nil || current.Status == "not_installed" {
+				results <- shellResult{index: index, needsRefresh: stale}
+				return
+			}
+			combined := combineCurrent(target, current)
+			if combined.Status != "update_available" && combined.Status != "unknown" {
+				results <- shellResult{index: index, needsRefresh: stale}
+				return
+			}
+			control := a.Store.ReadControl(id)
+			if control.Dismissed && control.Fingerprint == cache.Fingerprint(target) {
+				results <- shellResult{index: index, needsRefresh: stale}
+				return
+			}
+			results <- shellResult{index: index, visible: &combined, needsRefresh: stale}
+		}(i, p)
+	}
+	go func() { wg.Wait(); close(results) }()
+	visibleByIndex := make([]*protocol.Result, len(a.Plugins))
+	needsRefresh := false
+	for result := range results {
+		if result.visible != nil {
+			visibleByIndex[result.index] = result.visible
+		}
+		needsRefresh = needsRefresh || result.needsRefresh
+	}
 	var visible []protocol.Result
-	for _, p := range a.Plugins {
-		id := discovery.ID(p)
-		r, ok := a.Store.ReadAny(id)
-		if !ok {
-			stale = true
-			continue
-		}
-		t, _ := time.Parse(time.RFC3339, r.CheckedAt)
-		if time.Since(t) > a.Store.Stale {
-			stale = true
-		}
-		if r.Status == "update_available" || r.Status == "unknown" {
-			visible = append(visible, r)
+	for _, result := range visibleByIndex {
+		if result != nil {
+			visible = append(visible, *result)
 		}
 	}
 	if len(visible) > 0 {
 		fmt.Print(formatUpdates(visible))
 	}
-	if stale {
+	if needsRefresh && len(a.Plugins) > 0 {
 		if exe, err := os.Executable(); err == nil {
-			cmd := exec.Command(exe, "refresh")
-			cmd.Stdout = nil
-			cmd.Stderr = nil
-			_ = cmd.Start()
+			_ = startBackgroundRefresh(exe)
 		}
 	}
 	return nil
 }
 
+func combineCurrent(target, current protocol.Result) protocol.Result {
+	r := target
+	r.CurrentVersion = current.CurrentVersion
+	if current.Manager != "" {
+		r.Manager = current.Manager
+	}
+	var updates []protocol.Update
+	for _, u := range target.Updates {
+		if current.CurrentVersion == "" {
+			updates = append(updates, u)
+			continue
+		}
+		newer, err := semver.Latest(current.CurrentVersion, u.Version)
+		if err == nil && newer {
+			updates = append(updates, u)
+		}
+	}
+	if len(updates) == 0 && target.TargetVersion != "" {
+		if current.CurrentVersion == "" {
+			updates = append(updates, protocol.Update{Scope: "latest", Track: target.Track, Version: target.TargetVersion, SourceURL: target.SourceURL, Argv: target.Argv})
+		} else if newer, err := semver.Latest(current.CurrentVersion, target.TargetVersion); err == nil && newer {
+			updates = append(updates, protocol.Update{Scope: "latest", Track: target.Track, Version: target.TargetVersion, SourceURL: target.SourceURL, Argv: target.Argv})
+		}
+	}
+	r.Updates = updates
+	if len(updates) > 0 {
+		if target.Status == "update_available" {
+			r.Status = "update_available"
+		} else {
+			r.Status = "unknown"
+		}
+	} else if target.Status == "unknown" && target.TargetVersion == "" {
+		r.Status = "unknown"
+	} else {
+		r.Status = "up_to_date"
+	}
+	return r
+}
+
+func (a App) Dismiss(id string) error {
+	unlock, err := a.Store.Lock("refresh", a.Timeout+time.Second)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	for _, p := range a.Plugins {
+		if discovery.ID(p) != id {
+			continue
+		}
+		target, ok := a.Store.ReadTarget(id)
+		if !ok {
+			return fmt.Errorf("no target cache for plugin %q", id)
+		}
+		return a.Store.WriteControl(id, cache.Control{Dismissed: true, Fingerprint: cache.Fingerprint(target)})
+	}
+	return fmt.Errorf("unknown plugin %q", id)
+}
+
 type updateRow struct {
-	name, version, command, source string
+	name, current, target, command, source string
 }
 
 func formatUpdates(results []protocol.Result) string {
@@ -104,23 +237,27 @@ func formatUpdates(results []protocol.Result) string {
 			updates = []protocol.Update{{Scope: "latest", Track: r.Track, Version: r.TargetVersion, SourceURL: r.SourceURL, Argv: r.Argv}}
 		}
 		if len(updates) == 0 {
-			row := updateRow{r.Tool, r.CurrentVersion, "Not available", r.SourceURL}
-			if row.version == "" {
-				row.version = "Unknown"
+			row := updateRow{r.Tool, r.CurrentVersion, "Not available", "Not available", r.SourceURL}
+			if row.current == "" {
+				row.current = "Unknown"
 			}
 			attention = append(attention, row)
 			continue
 		}
 		for _, u := range updates {
-			version := u.Version
+			target := u.Version
 			if u.Track != "" {
-				version += " (" + u.Track + ")"
+				target += " (" + u.Track + ")"
 			}
 			command := "Not available"
 			if len(u.Argv) > 0 {
 				command = protocol.QuoteArgv(u.Argv)
 			}
-			row := updateRow{r.Tool, version, command, u.SourceURL}
+			current := r.CurrentVersion
+			if current == "" {
+				current = "Unknown"
+			}
+			row := updateRow{r.Tool, current, target, command, u.SourceURL}
 			if row.source == "" {
 				row.source = r.SourceURL
 			}
@@ -145,14 +282,14 @@ func formatUpdates(results []protocol.Result) string {
 }
 
 func writeUpdateTable(b *strings.Builder, title string, rows []updateRow) {
-	headers := []string{"Name", "Version", "Command to update", "Source"}
+	headers := []string{"Name", "Current", "Target", "Command to update", "Source"}
 	widths := make([]int, len(headers))
 	for i, h := range headers {
 		widths[i] = len(h)
 	}
 	values := make([][]string, len(rows))
 	for i, r := range rows {
-		value := []string{tableCell(r.name), tableCell(r.version), tableCell(r.command), tableCell(r.source)}
+		value := []string{tableCell(r.name), tableCell(r.current), tableCell(r.target), tableCell(r.command), tableCell(r.source)}
 		values[i] = value
 	}
 	displayValues := expandGroupedRows(values)
@@ -171,12 +308,13 @@ func writeUpdateTable(b *strings.Builder, title string, rows []updateRow) {
 	fmt.Fprintf(b, "%s\n", top)
 	fmt.Fprintf(b, "│ %s │\n", centerText(title, titleWidth))
 	fmt.Fprintf(b, "%s\n", titleBottom)
-	writeTableRow(b, headers, widths, []bool{true, true, true, true})
+	writeTableRow(b, headers, widths, []bool{true, true, true, true, true})
 	fmt.Fprintf(b, "%s\n", middle)
 	for _, value := range displayValues {
-		writeTableRow(b, value, widths, []bool{true, true, false, true})
+		writeTableRow(b, value, widths, []bool{true, true, false, false, true})
 	}
 	fmt.Fprintf(b, "%s\n", bottom)
+	fmt.Fprintf(b, "Hint: use check-now dismiss <plugin-id> to hide this notification.\n")
 }
 
 func tableLine(widths []int, left, junction, right string) string {
@@ -218,7 +356,7 @@ func expandGroupedRows(values [][]string) [][]string {
 	var out [][]string
 	for start := 0; start < len(values); {
 		end := start + 1
-		for end < len(values) && values[end][0] == values[start][0] && values[end][3] == values[start][3] {
+		for end < len(values) && values[end][0] == values[start][0] && values[end][4] == values[start][4] {
 			end++
 		}
 		group := values[start:end]
@@ -228,14 +366,14 @@ func expandGroupedRows(values [][]string) [][]string {
 			displayStart := len(out)
 			for i, row := range group {
 				if i > 0 {
-					out = append(out, []string{"", "", "", ""})
+					out = append(out, []string{"", "", "", "", ""})
 				}
 				copyRow := append([]string(nil), row...)
-				copyRow[0], copyRow[3] = "", ""
+				copyRow[0], copyRow[1], copyRow[4] = "", "", ""
 				out = append(out, copyRow)
 			}
 			center := displayStart + len(group) - 1
-			out[center][0], out[center][3] = group[0][0], group[0][3]
+			out[center][0], out[center][1], out[center][4] = group[0][0], group[0][1], group[0][4]
 		}
 		start = end
 	}
@@ -252,7 +390,13 @@ func centerText(value string, width int) string {
 }
 
 func tableCell(s string) string {
-	return strings.ReplaceAll(strings.ReplaceAll(s, "|", "\\|"), "\n", " ")
+	s = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return ' '
+		}
+		return r
+	}, s)
+	return strings.ReplaceAll(s, "|", "\\|")
 }
 
 func DefaultCache() string {

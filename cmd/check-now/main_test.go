@@ -11,6 +11,17 @@ import (
 	"check-now/internal/scaffold"
 )
 
+func TestCompletionCommandSelectsAndRejectsShells(t *testing.T) {
+	for _, shell := range []string{"bash", "zsh", "fish", "powershell", "pwsh"} {
+		if err := completionCommand([]string{shell}); err != nil {
+			t.Fatalf("completion %s: %v", shell, err)
+		}
+	}
+	if err := completionCommand([]string{"bash", "extra"}); err == nil {
+		t.Fatal("completion accepted an extra argument")
+	}
+}
+
 func TestPromptPluginExplainsOptionalFields(t *testing.T) {
 	old := os.Stdout
 	r, w, err := os.Pipe()

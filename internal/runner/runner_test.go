@@ -44,3 +44,25 @@ func TestRunnerMetadataValidatesFolderIdentity(t *testing.T) {
 		t.Fatal("metadata ID mismatch accepted")
 	}
 }
+
+func TestRunnerCurrentMode(t *testing.T) {
+	p := script(t, `request=$(cat); case "$request" in *'"mode":"current"'*) printf '{"protocol":1,"id":"x","tool":"X","status":"up_to_date","current_version":"1.0.0","checked_at":"2026-01-01T00:00:00Z"}' ;; *) exit 1 ;; esac`)
+	r, err := (Runner{Timeout: time.Second}).Run(context.Background(), p, protocol.Request{Protocol: 1, ID: "x", Mode: protocol.ModeCurrent})
+	if err != nil || r.CurrentVersion != "1.0.0" {
+		t.Fatalf("result=%+v err=%v", r, err)
+	}
+}
+
+func TestRunnerRejectsUnboundedPluginOutput(t *testing.T) {
+	p := script(t, `dd if=/dev/zero bs=1048576 count=2 2>/dev/null`)
+	if _, err := (Runner{Timeout: time.Second}).Run(context.Background(), p, protocol.Request{Protocol: 1, ID: "x", Mode: protocol.ModeCurrent}); err == nil {
+		t.Fatal("oversized plugin output accepted")
+	}
+}
+
+func TestRunnerRejectsRemoteFieldsInCurrentMode(t *testing.T) {
+	p := script(t, `printf '{"protocol":1,"id":"x","tool":"X","status":"update_available","current_version":"1.0.0","target_version":"2.0.0","checked_at":"2026-01-01T00:00:00Z"}'`)
+	if _, err := (Runner{Timeout: time.Second}).Run(context.Background(), p, protocol.Request{Protocol: 1, ID: "x", Mode: protocol.ModeCurrent}); err == nil {
+		t.Fatal("current response with target fields accepted")
+	}
+}

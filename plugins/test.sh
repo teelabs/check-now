@@ -33,6 +33,11 @@ chmod 700 "$fake/fake-tool"
 for id in node bun deno fnm codex; do ln -s fake-tool "$fake/$id"; done
 
 for id in node bun deno fnm codex; do
+  current=$(PATH="$fake:$PATH" "$root/$id/plugin.sh" <<EOF
+{"protocol":1,"id":"$id","mode":"current"}
+EOF
+)
+  case "$current" in *'"status":"up_to_date"'*) ;; *) echo "$id current probe failed: $current" >&2; exit 1 ;; esac
   output=$(PATH="$fake:$PATH" "$root/$id/plugin.sh" <<EOF
 {"protocol":1,"id":"$id","mode":"refresh"}
 EOF

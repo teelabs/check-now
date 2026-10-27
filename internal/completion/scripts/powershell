@@ -1,0 +1,12 @@
+# check-now completion
+$script:CheckNowCompletion = {
+  param($wordToComplete, $commandAst, $cursorPosition)
+  $commands = 'shell','refresh','dismiss','list','doctor','plugin','completion'
+  $plugins = 'node','bun','deno','fnm','codex'
+  $shells = 'bash','zsh','fish','powershell','pwsh'
+  $flags = '--force','--background','--id','--name','--description','--tool','--source-url','--runtime','--manager','--capability','--non-interactive'
+  $tokens = $commandAst.CommandElements | ForEach-Object { $_.Extent.Text }
+  $values = if ($tokens.Count -le 1) { $commands } elseif ($tokens[1] -eq 'completion') { $shells } elseif ($tokens[1] -eq 'dismiss') { $plugins } elseif ($tokens[1] -eq 'plugin') { $flags + $plugins } else { $flags }
+  $values | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) }
+}
+Register-ArgumentCompleter -Native -CommandName check-now -ScriptBlock $script:CheckNowCompletion

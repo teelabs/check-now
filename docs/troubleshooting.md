@@ -8,7 +8,7 @@ Run the generated `test.sh`, then `go test ./...`. Tests must use local fake com
 
 ## No output from `check-now shell`
 
-`shell` reads the cache; it is not a synchronous refresh command. Run:
+`shell` probes local versions synchronously but reads remote targets from cache; it is not a synchronous refresh command. It starts a non-forced background refresh only when target data is missing or stale. Run:
 
 ```sh
 check-now refresh --force
@@ -16,7 +16,7 @@ check-now shell
 check-now doctor
 ```
 
-If the refresh is unknown or fails, inspect stderr from the foreground refresh. A stale valid result remains visible, while an initial failed refresh can legitimately leave the cache empty.
+If the refresh is unknown or fails, inspect stderr from the foreground refresh. A valid previous target remains visible, while an initial failed refresh can legitimately leave the target cache empty. The current version still comes from the local probe on every shell invocation.
 
 ## Node reports no update
 

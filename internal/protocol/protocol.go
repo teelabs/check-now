@@ -11,6 +11,12 @@ import (
 
 const Version = 1
 
+const (
+	ModeMetadata = "metadata"
+	ModeCurrent  = "current"
+	ModeRefresh  = "refresh"
+)
+
 type Request struct {
 	Protocol  int               `json:"protocol"`
 	ID        string            `json:"id,omitempty"`
@@ -57,6 +63,18 @@ type Result struct {
 
 var statuses = map[string]bool{"not_installed": true, "up_to_date": true, "update_available": true, "unknown": true}
 
+var modes = map[string]bool{ModeMetadata: true, ModeCurrent: true, ModeRefresh: true}
+
+func ValidateRequest(r Request) error {
+	if r.Protocol != Version {
+		return fmt.Errorf("unsupported protocol %d", r.Protocol)
+	}
+	if !modes[r.Mode] {
+		return fmt.Errorf("unsupported mode %q", r.Mode)
+	}
+	return nil
+}
+
 func DecodeResult(data []byte) (Result, error) {
 	var r Result
 	d := json.NewDecoder(bytes.NewReader(data))
@@ -100,6 +118,7 @@ func DecodeMetadata(data []byte) (Metadata, error) {
 	}
 	return m, nil
 }
+
 func Encode(v any) ([]byte, error) { return json.Marshal(v) }
 func QuoteArgv(argv []string) string {
 	out := make([]string, len(argv))

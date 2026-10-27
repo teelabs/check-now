@@ -10,11 +10,13 @@ The host starts a fresh process for each request and sends one newline-terminate
 
 The refresh form uses the same envelope and may include configuration and the last valid result in `prior`. A plugin must not depend on undocumented host environment state for protocol correctness.
 
-`metadata` requests return `protocol`, `id`, `name`, `description`, `runtime`, `capabilities`, and optional `tool`, `source_url`, and `manager`. The host requires the metadata ID to equal the plugin folder ID.
+`metadata` requests return `protocol`, `id`, `name`, `description`, `runtime`, `capabilities`, and optional `tool`, `source_url`, and `manager`. Every plugin must advertise `current` and `refresh`; the host requires the metadata ID to equal the plugin folder ID.
+
+`current` returns only local information: installed version, manager/installation kind when known, status, and `checked_at`. It must not call network APIs. `refresh` discovers remote targets and may return target choices; the host combines them with the live current result before rendering.
 
 `refresh` requests return `protocol`, `id`, `status`, `tool`, and RFC3339 `checked_at`. Status is `not_installed`, `up_to_date`, `update_available`, or `unknown`; optional fields include versions, manager, source URL, explanation, and structured `argv`.
 
-An optional `updates` array can expose multiple policy choices. Each entry has `scope`, `track`, and `version`, plus optional `source_url`, `explanation`, and `argv`. For example, a Node plugin can report both the newest `24.x` release and the newest release overall. The terminal UI renders these entries as separate rows rather than exposing the machine status string.
+An optional `updates` array can expose multiple policy choices. Each entry has `scope`, `track`, and `version`, plus optional `source_url`, `explanation`, and `argv`. The parent result's `current_version` is the installed version shown in the terminal UI's `Current` column. For example, a Node plugin can report both the newest `24.x` release and the newest release overall. The terminal UI renders these entries as separate rows under the `Target` column rather than exposing the machine status string.
 
 `argv` is display-only. The host never executes it. Built-ins return `unknown` with an explanation when a newer release exists but the installation manager is not proven; they do not invent an update command.
 
@@ -23,7 +25,7 @@ An optional `updates` array can expose multiple policy choices. Each entry has `
 Metadata with optional fields omitted:
 
 ```json
-{"protocol":1,"id":"example","name":"Example","description":"Checks Example installations","runtime":"shell","capabilities":["refresh"]}
+{"protocol":1,"id":"example","name":"Example","description":"Checks Example installations","runtime":"shell","capabilities":["current","refresh"]}
 ```
 
 Conservative refresh result:
@@ -35,7 +37,7 @@ Conservative refresh result:
 An update result may include safe display guidance:
 
 ```json
-{"protocol":1,"id":"node","status":"update_available","tool":"node","versions":["24.22.1"],"manager":"fnm","source_url":"https://nodejs.org","checked_at":"2026-01-01T00:00:00Z","updates":[{"scope":"same_major","track":"24.x","version":"24.22.1","argv":["fnm","install","24.22.1"]}]}
+{"protocol":1,"id":"node","status":"update_available","tool":"node","current_version":"24.20.0","manager":"fnm","source_url":"https://nodejs.org","checked_at":"2026-01-01T00:00:00Z","updates":[{"scope":"same_major","track":"24.x","version":"24.22.1","argv":["fnm","install","24.22.1"]}]}
 ```
 
 Only protocol JSON belongs on stdout. Do not pretty-print multiple objects, add progress messages, or put diagnostics in the response stream. Keep tests offline and use fake commands or local fixture endpoints; never execute `argv` in a plugin test.

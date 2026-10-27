@@ -38,7 +38,13 @@ Use another prefix with `CHECK_NOW_PREFIX=/opt/check-now ./install.sh --install`
 ./install.sh --install --shell-hook
 ```
 
-Override detection with `--shell bash`, `--shell zsh`, `--shell fish`, `--shell ksh`, `--shell dash`, or `--shell powershell`.
+Install and activate native completion alongside the update-check hook:
+
+```sh
+./install.sh --install --shell-hook --shell-completion
+```
+
+Override detection with `--shell bash`, `--shell zsh`, `--shell fish`, `--shell ksh`, `--shell dash`, or `--shell powershell`. Completion supports Bash, Zsh, Fish, and PowerShell (`pwsh`); Ksh and Dash remain supported only for the update-check hook.
 
 ## Shell integration
 
@@ -50,7 +56,7 @@ The hook only runs in interactive shells, remains silent when `check-now` is una
 - Fish: `echo "source '$HOME/.local/share/check-now/check-now.fish'" >> ~/.config/fish/config.fish`
 - PowerShell: add `check-now shell | Out-Host` to `$PROFILE` when the executable is in `PATH`; the POSIX hook is not sourced by PowerShell.
 
-The installer can add Bash/Zsh/Ksh/Dash/Fish hooks with `--shell-hook`; it does not modify PowerShell profiles.
+The installer can add Bash/Zsh/Ksh/Dash/Fish hooks with `--shell-hook`. With `--shell-completion`, it installs static scripts under `$PREFIX/share/check-now/completions/` and activates them with a separate idempotent profile marker. PowerShell completion resolves `$PROFILE` using `pwsh` or `powershell`.
 
 ## Commands
 
@@ -58,12 +64,16 @@ The installer can add Bash/Zsh/Ksh/Dash/Fish hooks with `--shell-hook`; it does 
 check-now shell
 check-now refresh
 check-now refresh --force
+check-now dismiss <plugin-id>
 check-now list
 check-now doctor
 check-now plugin create <id>
+check-now completion [bash|zsh|fish|powershell|pwsh]
 ```
 
-`shell` is display-only. If the cache is stale it schedules a bounded background refresh, so the first shell invocation can have no table until a refresh has completed. Use `refresh --force` when you need an immediate foreground check. `doctor` reports the number of accepted plugins and the cache location.
+Without a shell argument, `completion` detects the basename of `$SHELL`; when that is absent or unrecognized, `PSModulePath` selects PowerShell. Completion is static and side-effect free: it never discovers plugins, reads the cache, accesses the network, or dynamically enumerates custom plugin IDs.
+
+`shell` is display-only. It probes each installed tool locally with `current`, reads cached targets, and schedules a bounded non-forced background `refresh` only when target data is missing or stale. Local probing is synchronous; remote discovery is asynchronous. Use `refresh --force` when you need an immediate foreground check, or `check-now dismiss <plugin-id>` to hide all currently displayed targets for a canonical plugin ID. A new target fingerprint or forced refresh clears that dismissal.
 
 ## Environment variables
 
@@ -73,7 +83,7 @@ All variables are optional. Invalid duration values fall back to their defaults.
 | --- | --- | --- |
 | `CHECK_NOW_PLUGIN_DIRS` | empty | Additional plugin roots to search before built-ins. Duplicate IDs use the first discovered root. |
 | `CHECK_NOW_BUILTIN_PLUGIN_DIR` | executable-relative locations | Replace built-in discovery with one directory. Useful for packaging and isolated tests. |
-| `CHECK_NOW_STALE_INTERVAL` | `24h` | Cache age that triggers background refresh for `shell`. Durations such as `6h` are accepted; a bare integer means hours. |
+| `CHECK_NOW_STALE_INTERVAL` | `24h` | Cache age used when deciding whether cached targets need background refresh. |
 | `CHECK_NOW_PLUGIN_TIMEOUT` | `5s` | Maximum time allowed for one plugin subprocess. Durations such as `2s` are accepted. |
 | `XDG_CACHE_HOME` | `~/.cache` | Base directory for the `check-now` cache and refresh lock. |
 | `CHECK_NOW_PLUGIN_ROOT` | `./plugins` | Destination root for `plugin create`; takes precedence over the first `CHECK_NOW_PLUGIN_DIRS` entry. |
@@ -94,7 +104,7 @@ All variables are optional. Invalid duration values fall back to their defaults.
 
 Built-in plugins query their official release sources at refresh time. Node prefers a proven `fnm` or `nvm` installation and queries that manager's remote catalog. Network or parsing failures produce `unknown`; they are never treated as `up_to_date`.
 
-When a checker can identify more than one useful target, `check-now shell` renders an aligned table with the tool name, version track, safe update command, and source URL. For Node this can show both the newest release in the current major line and the newest release overall. Shared names and sources are centered across grouped rows.
+When a checker can identify more than one useful target, `check-now shell` renders an aligned table with the tool name, current version, target version/track, safe update command, and source URL. For Node this can show both the newest release in the current major line and the newest release overall. A same-major target disappears as soon as the live current probe reaches it; a newer latest-major target remains informational. Shared name, current version, and source values are centered across grouped rows.
 
 Plugins are trusted local executables. The host does not download, install, evaluate, or execute returned `argv`; it only displays safely quoted text. A failed, timed-out, malformed, or offline plugin leaves its last valid cache untouched.
 

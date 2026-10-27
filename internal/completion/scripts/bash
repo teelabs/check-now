@@ -1,0 +1,24 @@
+# check-now completion
+_check_now_complete() {
+  local cur prev
+  cur="\${COMP_WORDS[COMP_CWORD]}"
+  prev="\${COMP_WORDS[COMP_CWORD-1]}"
+  local commands="shell refresh dismiss list doctor plugin completion"
+  local plugins="node bun deno fnm codex"
+  local shells="bash zsh fish powershell pwsh"
+  local flags="--force --background --id --name --description --tool --source-url --runtime --manager --capability --non-interactive"
+  if [[ \${COMP_CWORD} -eq 1 ]]; then
+    COMPREPLY=( $(compgen -W "$commands" -- "$cur") )
+  elif [[ "\${COMP_WORDS[1]}" == completion && \${COMP_CWORD} -eq 2 ]]; then
+    COMPREPLY=( $(compgen -W "$shells" -- "$cur") )
+  elif [[ "\${COMP_WORDS[1]}" == refresh ]]; then
+    COMPREPLY=( $(compgen -W "--force --background" -- "$cur") )
+  elif [[ "\${COMP_WORDS[1]}" == dismiss && \${COMP_CWORD} -eq 2 ]]; then
+    COMPREPLY=( $(compgen -W "$plugins" -- "$cur") )
+  elif [[ "\${COMP_WORDS[1]}" == plugin && "\${COMP_WORDS[2]}" == create ]]; then
+    if [[ "$prev" == --runtime ]]; then COMPREPLY=( $(compgen -W "shell" -- "$cur") )
+    elif [[ "$prev" == --capability ]]; then COMPREPLY=( $(compgen -W "current refresh" -- "$cur") )
+    else COMPREPLY=( $(compgen -W "$flags $plugins" -- "$cur") ); fi
+  fi
+}
+complete -F _check_now_complete check-now

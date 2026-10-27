@@ -4,9 +4,9 @@
 
 The Go host discovers executable `plugin.sh` files in configured directories and in development/installed built-in directories. The parent folder is the canonical plugin ID. Discovery rejects non-directories, non-executable entrypoints, duplicate IDs after the first match, and metadata whose `id` does not match the folder name.
 
-For every accepted plugin, the host first sends `{"protocol":1,"mode":"metadata",...}`. A refresh sends `mode: "refresh"` and an optional prior result. The bounded subprocess runner captures stdout and stderr separately, rejects malformed or trailing JSON, validates timestamps and status values, and kills timed-out plugin processes.
+For every accepted plugin, the host first sends `{"protocol":1,"mode":"metadata",...}` and requires both `current` and `refresh` capabilities. `current` is a local-only probe; `refresh` owns remote target discovery and may receive an optional prior target result. The bounded subprocess runner captures stdout and stderr separately, rejects malformed or trailing JSON, validates timestamps and status values, and kills timed-out plugin processes.
 
-Validated results are stored atomically in `$XDG_CACHE_HOME/check-now` (or `~/.cache/check-now`) and protected by a lock. `refresh` runs in the foreground. `shell` reads the last valid cache and starts a bounded background refresh when data is stale, which keeps shell startup fast. A failed, malformed, timed-out, or offline refresh does not overwrite a valid cache.
+Validated target results, current probe results, and dismissal controls are stored atomically below `$XDG_CACHE_HOME/check-now` (or `~/.cache/check-now`) in `targets/`, `current/`, and `control/`; old root `<id>.json` files are read as non-dismissed target entries. `refresh` runs in the foreground. `shell` probes current versions synchronously and starts one bounded non-forced background refresh only for missing/stale targets. A failed, malformed, timed-out, or offline refresh does not overwrite a valid target cache.
 
 ## Trust boundaries
 

@@ -1,8 +1,8 @@
 # Plugin authoring
 
-See [plugin protocol](plugin-protocol.md) for the complete metadata and refresh contracts. Use `check-now plugin create <id>` to generate the offline-safe starting bundle.
+See [plugin protocol](plugin-protocol.md) for the complete metadata, current, and refresh contracts. Use `check-now plugin create <id>` to generate the offline-safe starting bundle.
 
-Protocol version `1` requests contain `protocol`, `id`, `mode`, `timestamp`, configuration, and optionally `prior`. Results must contain `protocol: 1`, `id`, `status`, `tool`, and an RFC3339 `checked_at`. Status is one of `not_installed`, `up_to_date`, `update_available`, or `unknown`.
+Protocol version `1` requests contain `protocol`, `id`, `mode`, `timestamp`, configuration, and optionally `prior`. Modes are `metadata`, `current`, and `refresh`. Results must contain `protocol: 1`, `id`, `status`, `tool`, and an RFC3339 `checked_at`. Status is one of `not_installed`, `up_to_date`, `update_available`, or `unknown`.
 
 For `update_available`, include versions and `argv` only when the installation manager is confidently known. Include an official `source_url` and explanation when a command cannot be safely determined. Logs belong on stderr; stdout contains exactly one JSON result.
 

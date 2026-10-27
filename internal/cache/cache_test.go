@@ -61,3 +61,23 @@ func TestReadAnyRejectsFilenameIdentityMismatch(t *testing.T) {
 		t.Fatal("mismatched cache identity accepted")
 	}
 }
+
+func TestTargetAndCurrentCachesAreIndependent(t *testing.T) {
+	s := New(t.TempDir(), time.Hour)
+	target := protocol.Result{Protocol: 1, ID: "x", Tool: "X", Status: "update_available", TargetVersion: "2.0.0", CheckedAt: time.Now().UTC().Format(time.RFC3339)}
+	current := protocol.Result{Protocol: 1, ID: "x", Tool: "X", Status: "up_to_date", CurrentVersion: "1.0.0", CheckedAt: time.Now().UTC().Format(time.RFC3339)}
+	if err := s.WriteTarget(target); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.WriteCurrent(current); err != nil {
+		t.Fatal(err)
+	}
+	gotTarget, ok := s.ReadTarget("x")
+	if !ok || gotTarget.TargetVersion != "2.0.0" {
+		t.Fatalf("target=%+v ok=%v", gotTarget, ok)
+	}
+	gotCurrent, ok := s.ReadCurrent("x")
+	if !ok || gotCurrent.CurrentVersion != "1.0.0" {
+		t.Fatalf("current=%+v ok=%v", gotCurrent, ok)
+	}
+}

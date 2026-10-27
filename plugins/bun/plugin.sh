@@ -4,7 +4,7 @@ set -u
 id=bun; name=Bun; cmd=bun; source=https://bun.sh
 request=$(cat); now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 mode=$(printf '%s' "$request" | tr '\n' ' ' | sed -n 's/.*"mode"[[:space:]]*:[[:space:]]*"\([^" ]*\)".*/\1/p')
-case "$mode" in metadata) printf '%s\n' '{"protocol":1,"id":"bun","name":"Bun","description":"Checks Bun installations","tool":"bun","source_url":"https://bun.sh","runtime":"shell","capabilities":["refresh"]}'; exit 0;; refresh) ;; *) echo 'invalid request mode' >&2; exit 2;; esac
+case "$mode" in metadata) printf '%s\n' '{"protocol":1,"id":"bun","name":"Bun","description":"Checks Bun installations","tool":"bun","source_url":"https://bun.sh","runtime":"shell","capabilities":["current","refresh"]}'; exit 0;; current) if ! command -v "$cmd" >/dev/null 2>&1; then printf '{"protocol":1,"id":"%s","status":"not_installed","tool":"%s","checked_at":"%s"}\n' "$id" "$name" "$now"; else v=$($cmd --version 2>/dev/null | head -n 1 | sed 's/[^0-9]*\([0-9][0-9.]*\).*/\1/' || true); if [ -n "$v" ]; then printf '{"protocol":1,"id":"%s","status":"up_to_date","tool":"%s","installation_kind":"runtime","current_version":"%s","checked_at":"%s"}\n' "$id" "$name" "$v" "$now"; else printf '{"protocol":1,"id":"%s","status":"unknown","tool":"%s","checked_at":"%s"}\n' "$id" "$name" "$now"; fi; fi; exit 0;; refresh) ;; *) echo 'invalid request mode' >&2; exit 2;; esac
 if ! command -v "$cmd" >/dev/null 2>&1; then printf '{"protocol":1,"id":"%s","status":"not_installed","tool":"%s","checked_at":"%s","explanation":"Command not found"}\n' "$id" "$name" "$now"; exit 0; fi
 version=$($cmd --version 2>/dev/null | head -n 1 | sed 's/[^0-9]*\([0-9][0-9.]*\).*/\1/' || true)
 release_url=${CHECK_NOW_BUN_RELEASE_URL:-https://api.github.com/repos/oven-sh/bun/releases/latest}
