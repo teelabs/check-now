@@ -50,7 +50,7 @@ func TestScriptsContainPublicCommandsAndStaticCandidates(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, want := range []string{"shell", "refresh", "dismiss", "list", "doctor", "plugin", "completion", "--force", "node", "bun", "deno", "fnm", "codex"} {
+		for _, want := range []string{"shell", "refresh", "dismiss", "list", "doctor", "plugin", "completion", "--force", "node", "bun", "deno", "fnm", "codex", "claude"} {
 			if !strings.Contains(got, want) {
 				t.Errorf("%s completion lacks %q", shell, want)
 			}

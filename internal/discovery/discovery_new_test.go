@@ -25,7 +25,7 @@ func TestFindFolderPluginsUsesDirectoryIDAndMetadata(t *testing.T) {
 
 func TestBuiltinsOwnTheirPluginImplementation(t *testing.T) {
 	root := filepath.Join("..", "..", "plugins")
-	for _, id := range []string{"node", "bun", "deno", "fnm", "codex"} {
+	for _, id := range []string{"node", "bun", "deno", "fnm", "codex", "claude"} {
 		data, err := os.ReadFile(filepath.Join(root, id, "plugin.sh"))
 		if err != nil {
 			t.Fatal(err)

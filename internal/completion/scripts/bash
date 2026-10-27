@@ -4,7 +4,7 @@ _check_now_complete() {
   cur="\${COMP_WORDS[COMP_CWORD]}"
   prev="\${COMP_WORDS[COMP_CWORD-1]}"
   local commands="shell refresh dismiss list doctor plugin completion"
-  local plugins="node bun deno fnm codex"
+  local plugins="node bun deno fnm codex claude"
   local shells="bash zsh fish powershell pwsh"
   local flags="--force --background --id --name --description --tool --source-url --runtime --manager --capability --non-interactive"
   if [[ \${COMP_CWORD} -eq 1 ]]; then
