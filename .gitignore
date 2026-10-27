@@ -1,0 +1,8 @@
+# Reproducible build output.
+/dist/
+
+# Local test and cache artifacts.
+*.stderr
+*.stdout
+*.tmp
+.cache/
