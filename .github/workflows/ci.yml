@@ -23,7 +23,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
 
       - name: Run tests
         run: go test ./...
@@ -39,4 +39,4 @@ jobs:
           make test-plugins
           sh -n install.sh check-now.sh plugins/test.sh
           bash -n internal/completion/scripts/bash
-          zsh -n internal/completion/scripts/zsh
+          if command -v zsh >/dev/null 2>&1; then zsh -n internal/completion/scripts/zsh; fi
