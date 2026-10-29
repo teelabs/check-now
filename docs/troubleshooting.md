@@ -24,6 +24,16 @@ The Node plugin checks the installed executable and first tries to prove ownersh
 
 Use `CHECK_NOW_NODE_RELEASE_URL` and the `CHECK_NOW_*_TARGET` variables only with local fixtures when reproducing parser behavior. They are not a replacement for real detection.
 
+## Claude Code or Codex reports no update
+
+The Claude Code checker recognizes the native version store below `~/.local/share/claude/versions` and global npm ownership. The Codex checker recognizes the standalone release store below `$CODEX_HOME/packages/standalone/releases`, global npm ownership, and a binary owned by Homebrew. When ownership is proven, refresh shows a documented copy-paste update command; otherwise it keeps the result `unknown` rather than guessing. For the standalone Codex installer, the documented update command is:
+
+```sh
+curl -fsSL https://chatgpt.com/codex/install.sh | sh
+```
+
+Check `command -v claude`, `command -v codex`, and their resolved paths with `readlink -f` or `realpath` when diagnosing an unrecognized installation.
+
 ## Plugin output and discovery failures
 
 Run a plugin directly with a metadata request to isolate it:

@@ -292,7 +292,6 @@ func writeUpdateTable(b *strings.Builder, title string, rows []updateRow) {
 		value := []string{tableCell(r.name), tableCell(r.current), tableCell(r.target), tableCell(r.command), tableCell(r.source)}
 		values[i] = value
 	}
-	displayValues := expandGroupedRows(values)
 	for i := range values {
 		for j, value := range values[i] {
 			if len(value) > widths[j] {
@@ -310,8 +309,20 @@ func writeUpdateTable(b *strings.Builder, title string, rows []updateRow) {
 	fmt.Fprintf(b, "%s\n", titleBottom)
 	writeTableRow(b, headers, widths, []bool{true, true, true, true, true})
 	fmt.Fprintf(b, "%s\n", middle)
-	for _, value := range displayValues {
-		writeTableRow(b, value, widths, []bool{true, true, false, false, true})
+	firstGroup := true
+	for start := 0; start < len(values); {
+		end := start + 1
+		for end < len(values) && values[end][0] == values[start][0] && values[end][4] == values[start][4] {
+			end++
+		}
+		if !firstGroup {
+			fmt.Fprintf(b, "%s\n", middle)
+		}
+		for _, value := range expandGroupedRows(values[start:end]) {
+			writeTableRow(b, value, widths, []bool{true, true, false, false, true})
+		}
+		firstGroup = false
+		start = end
 	}
 	fmt.Fprintf(b, "%s\n", bottom)
 	fmt.Fprintf(b, "Hint: use check-now dismiss <plugin-id> to hide this notification.\n")
@@ -396,7 +407,7 @@ func tableCell(s string) string {
 		}
 		return r
 	}, s)
-	return strings.ReplaceAll(s, "|", "\\|")
+	return s
 }
 
 func DefaultCache() string {

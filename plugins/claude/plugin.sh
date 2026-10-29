@@ -9,6 +9,33 @@ request=$(cat)
 now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 mode=$(printf '%s' "$request" | tr '\n' ' ' | sed -n 's/.*"mode"[[:space:]]*:[[:space:]]*"\([^" ]*\)".*/\1/p')
 
+resolve_command() {
+  command_path=$(command -v "$cmd" 2>/dev/null || true)
+  [ -n "$command_path" ] || return 1
+  if command -v realpath >/dev/null 2>&1; then
+    realpath "$command_path" 2>/dev/null
+  elif readlink -f "$command_path" >/dev/null 2>&1; then
+    readlink -f "$command_path"
+  else
+    printf '%s\n' "$command_path"
+  fi
+}
+
+detect_manager() {
+  real_bin=$1
+  manager=
+  case "$real_bin" in
+    "${CHECK_NOW_CLAUDE_HOME:-${HOME:-}/.local/share/claude}/versions/"*) manager=claude-native ;;
+  esac
+  if [ -z "$manager" ] && command -v npm >/dev/null 2>&1; then
+    npm_root=$(npm root -g 2>/dev/null || true)
+    case "$real_bin" in
+      "$npm_root/@anthropic-ai/claude-code/"*) manager=npm ;;
+    esac
+  fi
+  printf '%s\n' "$manager"
+}
+
 case "$mode" in
   metadata)
     printf '%s\n' '{"protocol":1,"id":"claude","name":"Claude Code","description":"Checks Claude Code installations","tool":"claude","source_url":"https://github.com/anthropics/claude-code","runtime":"shell","capabilities":["current","refresh"]}'
@@ -20,7 +47,11 @@ case "$mode" in
     else
       version=$($cmd --version 2>/dev/null | head -n 1 | sed 's/[^0-9]*\([0-9][0-9.]*\).*/\1/' || true)
       if [ -n "$version" ]; then
-        printf '{"protocol":1,"id":"%s","status":"up_to_date","tool":"%s","installation_kind":"cli","current_version":"%s","checked_at":"%s"}\n' "$id" "$name" "$version" "$now"
+        real_bin=$(resolve_command || true)
+        manager=$(detect_manager "$real_bin")
+        manager_field=
+        [ -n "$manager" ] && manager_field=',"manager":"'"$manager"'"'
+        printf '{"protocol":1,"id":"%s","status":"up_to_date","tool":"%s","installation_kind":"cli"%s,"current_version":"%s","checked_at":"%s"}\n' "$id" "$name" "$manager_field" "$version" "$now"
       else
         printf '{"protocol":1,"id":"%s","status":"unknown","tool":"%s","checked_at":"%s"}\n' "$id" "$name" "$now"
       fi
@@ -37,6 +68,8 @@ if ! command -v "$cmd" >/dev/null 2>&1; then
 fi
 
 version=$($cmd --version 2>/dev/null | head -n 1 | sed 's/[^0-9]*\([0-9][0-9.]*\).*/\1/' || true)
+real_bin=$(resolve_command || true)
+manager=$(detect_manager "$real_bin")
 release_url=${CHECK_NOW_CLAUDE_RELEASE_URL:-https://api.github.com/repos/anthropics/claude-code/releases/latest}
 target=${CHECK_NOW_CLAUDE_TARGET:-}
 if [ -z "$target" ] && command -v curl >/dev/null 2>&1; then
@@ -60,7 +93,13 @@ is_newer() {
 if [ -z "$version" ] || [ -z "$target" ]; then
   printf '{"protocol":1,"id":"%s","status":"unknown","tool":"%s","checked_at":"%s","source_url":"%s","explanation":"Could not determine installed or latest release version"}\n' "$id" "$name" "$now" "$source"
 elif is_newer "$version" "$target"; then
-  printf '{"protocol":1,"id":"%s","status":"unknown","tool":"%s","installation_kind":"cli","current_version":"%s","target_version":"%s","checked_at":"%s","source_url":"%s","explanation":"A newer official release exists, but the installation manager is not proven"}\n' "$id" "$name" "$version" "$target" "$now" "$source"
+  case "$manager" in
+    claude-native) printf '{"protocol":1,"id":"%s","status":"update_available","tool":"%s","installation_kind":"cli","manager":"claude-native","current_version":"%s","target_version":"%s","argv":["claude","update"],"checked_at":"%s","source_url":"%s"}\n' "$id" "$name" "$version" "$target" "$now" "$source" ;;
+    npm) printf '{"protocol":1,"id":"%s","status":"update_available","tool":"%s","installation_kind":"cli","manager":"npm","current_version":"%s","target_version":"%s","argv":["npm","install","-g","@anthropic-ai/claude-code@latest"],"checked_at":"%s","source_url":"%s"}\n' "$id" "$name" "$version" "$target" "$now" "$source" ;;
+    *) printf '{"protocol":1,"id":"%s","status":"unknown","tool":"%s","installation_kind":"cli","current_version":"%s","target_version":"%s","checked_at":"%s","source_url":"%s","explanation":"A newer official release exists, but the installation manager is not proven"}\n' "$id" "$name" "$version" "$target" "$now" "$source" ;;
+  esac
 else
-  printf '{"protocol":1,"id":"%s","status":"up_to_date","tool":"%s","installation_kind":"cli","current_version":"%s","checked_at":"%s","source_url":"%s"}\n' "$id" "$name" "$version" "$now" "$source"
+  manager_field=
+  [ -n "$manager" ] && manager_field=',"manager":"'"$manager"'"'
+  printf '{"protocol":1,"id":"%s","status":"up_to_date","tool":"%s","installation_kind":"cli"%s,"current_version":"%s","checked_at":"%s","source_url":"%s"}\n' "$id" "$name" "$manager_field" "$version" "$now" "$source"
 fi
