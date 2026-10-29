@@ -4,6 +4,15 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- Proven update guidance for native and npm-managed Claude Code installations and standalone, npm, and Homebrew Codex CLI installations.
+
+### Fixed
+
+- Preserved shell pipeline operators in displayed update commands so commands such as the Codex installer remain copy-pasteable.
+- Added horizontal separators between each utility group in the update table.
+
 ## [0.1.0] - 2026-10-27
 
 ### Added

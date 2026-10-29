@@ -79,4 +79,26 @@ EOF
 nvm_output=$(printf '%s\n' '{ "protocol": 1, "id": "node", "mode": "refresh" }' | PATH="$nvm_dir/versions/node/v24.0.0/bin:$fake/nvm-bin:$PATH" NVM_DIR="$nvm_dir" "$root/node/plugin.sh")
 printf '%s\n' "$nvm_output" | grep -F '"manager":"nvm"' | grep -F '"version":"24.20.0"' | grep -F '"version":"26.0.0"' | grep -F '"argv":["nvm","install","24.20.0"]' >/dev/null || { echo "bad nvm-backed node result: $nvm_output" >&2; exit 1; }
 
+managed_home="$fake/home"
+mkdir -p "$managed_home/.local/share/claude/versions/2.1.310"
+mkdir -p "$managed_home/.codex/packages/standalone/releases/0.163.0-x86_64-unknown-linux-musl/bin"
+cp "$fake/fake-tool" "$managed_home/.local/share/claude/versions/2.1.310/claude"
+cp "$fake/fake-tool" "$managed_home/.codex/packages/standalone/releases/0.163.0-x86_64-unknown-linux-musl/bin/codex"
+chmod 700 "$managed_home/.local/share/claude/versions/2.1.310/claude" "$managed_home/.codex/packages/standalone/releases/0.163.0-x86_64-unknown-linux-musl/bin/codex"
+mkdir -p "$managed_home/bin" "$managed_home/.codex/packages/standalone"
+ln -s "$managed_home/.local/share/claude/versions/2.1.310/claude" "$managed_home/bin/claude"
+ln -s "$managed_home/.codex/packages/standalone/releases/0.163.0-x86_64-unknown-linux-musl/bin/codex" "$managed_home/bin/codex"
+
+claude_managed=$(HOME="$managed_home" PATH="$managed_home/bin:$fake:$PATH" CHECK_NOW_CLAUDE_TARGET=2.1.311 "$root/claude/plugin.sh" <<EOF
+{"protocol":1,"id":"claude","mode":"refresh"}
+EOF
+)
+printf '%s\n' "$claude_managed" | grep -F '"status":"update_available"' | grep -F '"manager":"claude-native"' | grep -F '"argv":["claude","update"]' >/dev/null || { echo "bad native Claude result: $claude_managed" >&2; exit 1; }
+
+codex_managed=$(HOME="$managed_home" PATH="$managed_home/bin:$fake:$PATH" CHECK_NOW_CODEX_TARGET=0.200.0 "$root/codex/plugin.sh" <<EOF
+{"protocol":1,"id":"codex","mode":"refresh"}
+EOF
+)
+printf '%s\n' "$codex_managed" | grep -F '"status":"update_available"' | grep -F '"manager":"codex-standalone"' | grep -F '"argv":["sh","-c","curl -fsSL https://chatgpt.com/codex/install.sh | sh"]' >/dev/null || { echo "bad standalone Codex result: $codex_managed" >&2; exit 1; }
+
 echo "builtin plugin fixtures passed"

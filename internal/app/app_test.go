@@ -44,6 +44,29 @@ func TestTableCellNeutralizesTerminalControls(t *testing.T) {
 	}
 }
 
+func TestFormatUpdatesPreservesShellPipelinesInCommands(t *testing.T) {
+	got := formatUpdates([]protocol.Result{{
+		Tool: "Codex CLI", Status: "update_available", CurrentVersion: "0.164.0",
+		TargetVersion: "0.166.0", Argv: []string{"sh", "-c", "curl -fsSL https://chatgpt.com/codex/install.sh | sh"},
+	}})
+	if !strings.Contains(got, "sh -c 'curl -fsSL https://chatgpt.com/codex/install.sh | sh'") {
+		t.Fatalf("command pipeline was not preserved: %s", got)
+	}
+	if strings.Contains(got, `\\|`) {
+		t.Fatalf("command pipeline was escaped into a different command: %s", got)
+	}
+}
+
+func TestFormatUpdatesSeparatesUtilityGroups(t *testing.T) {
+	got := formatUpdates([]protocol.Result{
+		{Tool: "Claude Code", Status: "update_available", CurrentVersion: "2.1.311", TargetVersion: "2.1.312", Argv: []string{"claude", "update"}},
+		{Tool: "Codex CLI", Status: "update_available", CurrentVersion: "0.164.0", TargetVersion: "0.166.0", Argv: []string{"codex"}},
+	})
+	if gotLines := strings.Count(got, "\n├"); gotLines != 3 {
+		t.Fatalf("expected title separator plus one separator per utility group, got %d:\n%s", gotLines, got)
+	}
+}
+
 func TestCombineCurrentHidesReachedSameMajorAndKeepsLatestMajor(t *testing.T) {
 	target := protocol.Result{Protocol: 1, ID: "node", Tool: "Node", Status: "update_available", Updates: []protocol.Update{
 		{Scope: "same_major", Track: "24.x", Version: "24.20.0"}, {Scope: "latest", Track: "latest", Version: "26.0.0"},
