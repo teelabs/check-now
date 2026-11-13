@@ -4,10 +4,6 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
-### Fixed
-
-- Made release workflow dispatch the Pages deployment without requiring a checked-out repository.
-
 ## [0.3.0] - 2026-11-13
 
 ### Added
@@ -24,6 +20,7 @@ All notable changes to this project are documented here.
 
 - Bounded cache record reads, rejected non-regular cache records, capped health checks, guarded duration overflow, redacted matching environment values from adapter health text, and completed Bash/Zsh capability suggestions.
 - Dispatch Cloudflare Pages deployment from the validated release workflow.
+- Made release workflow dispatch the Pages deployment without requiring a checked-out repository.
 
 ## [0.2.0] - 2026-11-12
 
