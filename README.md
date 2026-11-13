@@ -55,7 +55,7 @@ curl -fsSL https://check-now.pages.dev/install.sh | sh
 Install or upgrade a pinned version and choose another prefix:
 
 ```sh
-curl -fsSL https://check-now.pages.dev/install.sh | sh -s -- --version 0.3.0 --prefix "$HOME/.local"
+curl -fsSL https://check-now.pages.dev/install.sh | sh -s -- --version 0.3.1 --prefix "$HOME/.local"
 ```
 
 Shell integration remains opt-in. Add `--shell-hook` for the detected shell, or `--shell bash --shell-hook --shell-completion` to configure Bash explicitly. The installer supports hook setup for Bash, Zsh, Fish, Ksh, and Dash, with completion for Bash, Zsh, and Fish. Add the chosen prefix's `bin` directory (by default, `~/.local/bin`) to `PATH` if it is not already present.
@@ -109,6 +109,8 @@ check-now completion [bash|zsh|fish|powershell|pwsh]
 version prints the installed release. shell displays cached update information and safe commands. refresh updates plugin information, and --force performs an immediate foreground refresh. dismiss hides displayed targets for a plugin ID. list shows discovered plugins. doctor reports per-setting, adapter, local probe, cache, and latest refresh findings. plugin create interactively scaffolds a local checker, with flags available for non-interactive use. completion prints a static script for a supported shell.
 
 `doctor` stays local: it calls adapter `health` and `current`, reads target/current/control cache records and refresh history, and probes cache access with a temporary create/read/remove. It never refreshes remote sources, rewrites cache records, or applies repairs. Findings include status, a short explanation, and an optional suggested repair. A completed report exits successfully regardless of findings; invalid command usage still exits with an error. Configuration values and plugin stderr are not printed or stored in refresh history.
+
+The human report groups configuration, adapter, and cache findings into sections. It uses terminal colors only when writing to an interactive terminal; redirected output stays plain. Missing refresh history is shown as `NOT CHECKED`, not as a warning.
 
 Without a shell argument, `completion` detects the basename of `$SHELL`; when that is absent or unrecognized, `PSModulePath` selects PowerShell. Completion is static and side-effect free: it never discovers plugins, reads the cache, accesses the network, or dynamically enumerates custom plugin IDs.
 

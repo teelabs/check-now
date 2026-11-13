@@ -4,6 +4,12 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-13
+
+### Fixed
+
+- Structured and colorized doctor output for terminals, kept redirected output plain, preserved readable adapter text during environment-value redaction, and treated missing refresh history as not checked.
+
 ## [0.3.0] - 2026-11-13
 
 ### Added

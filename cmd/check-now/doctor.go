@@ -51,7 +51,7 @@ func doctorCommand() {
 	plugins := discovery.Find("", append(configuredRoots, builtinRoots...))
 	store := cache.New(app.DefaultCache(), stale)
 	findings = append(findings, app.Diagnose(context.Background(), plugins, store, timeout)...)
-	app.WriteFindings(os.Stdout, findings)
+	renderDoctor(os.Stdout, findings, doctorColorEnabled(os.Stdout))
 }
 
 func checkPluginRoot(component, root string) app.Finding {
