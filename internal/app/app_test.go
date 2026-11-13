@@ -71,6 +71,80 @@ func TestRefreshFailurePreservesTargetAndStoresOnlyBoundedOutcome(t *testing.T) 
 	}
 }
 
+func TestRefreshRecordsTimeoutAndProtocolFailureWhilePreservingTarget(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		body    string
+		timeout time.Duration
+		outcome string
+	}{
+		{"timeout", "cat >/dev/null\nsleep 1\n", 10 * time.Millisecond, "timeout"},
+		{"protocol failure", "cat >/dev/null\nprintf '%s\\n' '{not-json}'\n", time.Second, "protocol_failure"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			plugin := filepath.Join(root, "tool", "plugin.sh")
+			if err := os.MkdirAll(filepath.Dir(plugin), 0755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(plugin, []byte("#!/bin/sh\n"+tc.body), 0755); err != nil {
+				t.Fatal(err)
+			}
+			store := cache.New(filepath.Join(root, "cache"), time.Hour)
+			prior := protocol.Result{Protocol: protocol.Version, ID: "tool", Tool: "Tool", Status: "update_available", TargetVersion: "2.0.0", CheckedAt: time.Now().UTC().Format(time.RFC3339)}
+			if err := store.WriteTarget(prior); err != nil {
+				t.Fatal(err)
+			}
+			if err := New([]string{plugin}, store.Dir, time.Hour, tc.timeout).Refresh(context.Background(), true); err == nil {
+				t.Fatal("expected refresh failure")
+			}
+			got, ok := store.ReadTarget("tool")
+			if !ok || got.TargetVersion != prior.TargetVersion {
+				t.Fatalf("target=%+v ok=%v", got, ok)
+			}
+			history, ok := store.ReadRefresh("tool")
+			if !ok || history.Outcome != tc.outcome {
+				t.Fatalf("history=%+v ok=%v; want outcome %s", history, ok, tc.outcome)
+			}
+		})
+	}
+}
+
+func TestRefreshRecordsCacheFailureWithoutReplacingLegacyTarget(t *testing.T) {
+	root := t.TempDir()
+	plugin := filepath.Join(root, "tool", "plugin.sh")
+	if err := os.MkdirAll(filepath.Dir(plugin), 0755); err != nil {
+		t.Fatal(err)
+	}
+	body := "#!/bin/sh\ncat >/dev/null\nprintf '%s\\n' '{\"protocol\":2,\"id\":\"tool\",\"tool\":\"Tool\",\"status\":\"up_to_date\",\"checked_at\":\"2026-01-01T00:00:00Z\"}'\n"
+	if err := os.WriteFile(plugin, []byte(body), 0755); err != nil {
+		t.Fatal(err)
+	}
+	cacheDir := filepath.Join(root, "cache")
+	store := cache.New(cacheDir, time.Hour)
+	if err := os.MkdirAll(cacheDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cacheDir, "targets"), []byte("block target directory"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	prior := `{"protocol":2,"id":"tool","tool":"Tool","status":"update_available","target_version":"2.0.0","checked_at":"2026-01-01T00:00:00Z"}`
+	if err := os.WriteFile(store.Path("tool"), []byte(prior), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := New([]string{plugin}, cacheDir, time.Hour, time.Second).Refresh(context.Background(), true); err == nil {
+		t.Fatal("expected cache write failure")
+	}
+	got, ok := store.ReadTarget("tool")
+	if !ok || got.TargetVersion != "2.0.0" {
+		t.Fatalf("target=%+v ok=%v; last-known-good target was lost", got, ok)
+	}
+	history, ok := store.ReadRefresh("tool")
+	if !ok || history.Outcome != "cache_failure" {
+		t.Fatalf("history=%+v ok=%v; want cache_failure", history, ok)
+	}
+}
+
 func TestTableCellNeutralizesTerminalControls(t *testing.T) {
 	got := tableCell("Tool\x1b[2J\r\nName")
 	if strings.ContainsAny(got, "\x1b\r\n") {

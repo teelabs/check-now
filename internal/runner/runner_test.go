@@ -81,6 +81,23 @@ func TestHealthTimeoutIsBounded(t *testing.T) {
 	}
 }
 
+func TestHealthRejectsMalformedAndMismatchedResponses(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		response string
+	}{
+		{"malformed JSON", "not-json"},
+		{"wrong adapter ID", `{"protocol":2,"id":"other","checked_at":"2026-01-01T00:00:00Z","checks":[{"code":"command.available","status":"ok","summary":"Tool is available."}]}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := script(t, "printf '%s\\n' '"+tc.response+"'")
+			if _, err := (Runner{Timeout: time.Second}).Health(context.Background(), p, "x"); err == nil {
+				t.Fatal("invalid health response was accepted")
+			}
+		})
+	}
+}
+
 func TestRunnerCurrentMode(t *testing.T) {
 	p := script(t, `request=$(cat); case "$request" in *'"mode":"current"'*) printf '{"protocol":2,"id":"x","tool":"X","status":"up_to_date","current_version":"1.0.0","checked_at":"2026-01-01T00:00:00Z"}' ;; *) exit 1 ;; esac`)
 	r, err := (Runner{Timeout: time.Second}).Run(context.Background(), p, protocol.Request{Protocol: protocol.Version, ID: "x", Mode: protocol.ModeCurrent})

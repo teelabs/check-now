@@ -107,6 +107,95 @@ esac
 	}
 }
 
+func TestDiagnoseClassifiesCacheRecordStates(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		setup func(t *testing.T, store cache.Store)
+		want  map[string]string
+	}{
+		{
+			name: "missing",
+			want: map[string]string{
+				"cache.tool.target": "warning", "cache.tool.current": "warning",
+				"cache.tool.control": "ok", "cache.tool.refresh": "warning",
+			},
+		},
+		{
+			name: "stale",
+			setup: func(t *testing.T, store cache.Store) {
+				old := time.Now().Add(-3 * time.Hour).UTC().Format(time.RFC3339)
+				if err := store.WriteTarget(protocol.Result{Protocol: protocol.Version, ID: "tool", Tool: "Tool", Status: "unknown", CheckedAt: old}); err != nil {
+					t.Fatal(err)
+				}
+				if err := store.WriteCurrent(protocol.Result{Protocol: protocol.Version, ID: "tool", Tool: "Tool", Status: "up_to_date", CurrentVersion: "1.0.0", CheckedAt: old}); err != nil {
+					t.Fatal(err)
+				}
+				if err := store.WriteRefresh("tool", cache.RefreshRecord{CheckedAt: time.Now().UTC().Format(time.RFC3339), Outcome: "success"}); err != nil {
+					t.Fatal(err)
+				}
+			},
+			want: map[string]string{
+				"cache.tool.target": "warning", "cache.tool.current": "warning",
+				"cache.tool.control": "ok", "cache.tool.refresh": "ok",
+			},
+		},
+		{
+			name: "corrupt",
+			setup: func(t *testing.T, store cache.Store) {
+				for _, path := range []string{store.TargetPath("tool"), store.CurrentPath("tool"), store.ControlPath("tool"), store.RefreshPath("tool")} {
+					if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.WriteFile(path, []byte("corrupt"), 0600); err != nil {
+						t.Fatal(err)
+					}
+				}
+			},
+			want: map[string]string{
+				"cache.tool.target": "error", "cache.tool.current": "error",
+				"cache.tool.control": "warning", "cache.tool.refresh": "warning",
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			plugin := writeHealthyDoctorPlugin(t, root)
+			store := cache.New(filepath.Join(root, "cache"), time.Hour)
+			if tc.setup != nil {
+				tc.setup(t, store)
+			}
+			findings := Diagnose(context.Background(), []string{plugin}, store, time.Second)
+			for component, status := range tc.want {
+				finding, ok := findFinding(findings, component)
+				if !ok || finding.Status != status {
+					t.Errorf("%s finding=%+v ok=%v; want status %s", component, finding, ok, status)
+				}
+			}
+		})
+	}
+}
+
+func writeHealthyDoctorPlugin(t *testing.T, root string) string {
+	t.Helper()
+	plugin := filepath.Join(root, "tool", "plugin.sh")
+	if err := os.MkdirAll(filepath.Dir(plugin), 0755); err != nil {
+		t.Fatal(err)
+	}
+	body := `#!/bin/sh
+request=$(cat)
+case "$request" in
+  *'"mode":"metadata"'*) printf '%s\n' '{"protocol":2,"id":"tool","name":"Tool","description":"Checks Tool","runtime":"shell","capabilities":["current","refresh","health"]}' ;;
+  *'"mode":"health"'*) printf '%s\n' '{"protocol":2,"id":"tool","checked_at":"2026-01-01T00:00:00Z","checks":[{"code":"config.ready","status":"ok","summary":"Configuration is ready."}]}' ;;
+  *'"mode":"current"'*) printf '%s\n' '{"protocol":2,"id":"tool","tool":"Tool","status":"up_to_date","current_version":"1.0.0","checked_at":"2026-01-01T00:00:00Z"}' ;;
+  *) exit 2 ;;
+esac
+`
+	if err := os.WriteFile(plugin, []byte(body), 0755); err != nil {
+		t.Fatal(err)
+	}
+	return plugin
+}
+
 func snapshotFiles(t *testing.T, root string) map[string]string {
 	t.Helper()
 	files := make(map[string]string)
