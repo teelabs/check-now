@@ -4,6 +4,10 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Made release workflow dispatch the Pages deployment without requiring a checked-out repository.
+
 ## [0.3.0] - 2026-11-13
 
 ### Added
