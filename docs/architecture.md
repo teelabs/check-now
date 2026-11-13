@@ -10,7 +10,7 @@ Validated target results, current probe results, dismissal controls, and bounded
 
 ## Trust boundaries
 
-Plugins are trusted local executables and therefore can inspect the local machine and make network requests. They own detection and release interpretation; the host does not duplicate checker logic. Health checks must not contact remote sources or expose environment values. Plugin output is still untrusted data: returned `argv`, URLs, names, summaries, and explanations are validated as protocol data and displayed only.
+Plugins are trusted local executables and therefore can inspect the local machine and make network requests. They own detection and release interpretation; the host does not duplicate checker logic. Health checks must not contact remote sources or expose environment values. Doctor replaces literal non-empty environment values in plugin IDs and adapter health codes, summaries, and repair text before display. Very short values can make more of a message unreadable; adapters must still omit environment values and secrets because derived or transformed values cannot be reliably detected.
 
 The host never evaluates shell output, downloads plugins, installs tools, or executes returned `argv`. Update commands are copy-paste guidance only. A plugin must return `unknown` when it cannot prove installation ownership or construct a safe manager-specific command.
 

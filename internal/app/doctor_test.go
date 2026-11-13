@@ -196,6 +196,36 @@ esac
 	return plugin
 }
 
+func TestDiagnoseRedactsEnvironmentValuesFromAdapterHealthText(t *testing.T) {
+	const secret = "doctor-private-environment-sentinel"
+	const shortSecret = "Z"
+	t.Setenv("CHECK_NOW_DOCTOR_TEST_SECRET", secret)
+	t.Setenv("CHECK_NOW_DOCTOR_SHORT_SECRET", shortSecret)
+	root := t.TempDir()
+	plugin := writeHealthyDoctorPlugin(t, root)
+	pluginDir := filepath.Join(root, secret)
+	if err := os.Rename(filepath.Dir(plugin), pluginDir); err != nil {
+		t.Fatal(err)
+	}
+	plugin = filepath.Join(pluginDir, "plugin.sh")
+	body, err := os.ReadFile(plugin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body = []byte(strings.ReplaceAll(string(body), `"id":"tool"`, `"id":"`+secret+`"`))
+	replacement := `"code":"` + secret + `","summary":"Found ` + secret + ` and prefix` + shortSecret + `suffix in configuration.","repair":"Unset ` + secret + ` and prefix` + shortSecret + `suffix."`
+	body = []byte(strings.Replace(string(body), `"code":"config.ready","summary":"Configuration is ready."`, replacement, 1))
+	if err := os.WriteFile(plugin, body, 0755); err != nil {
+		t.Fatal(err)
+	}
+	findings := Diagnose(context.Background(), []string{plugin}, cache.New(filepath.Join(root, "cache"), time.Hour), time.Second)
+	var report strings.Builder
+	WriteFindings(&report, findings)
+	if strings.Contains(report.String(), secret) || strings.Contains(report.String(), shortSecret) {
+		t.Fatalf("doctor report exposed adapter-provided environment value: %s", report.String())
+	}
+}
+
 func snapshotFiles(t *testing.T, root string) map[string]string {
 	t.Helper()
 	files := make(map[string]string)

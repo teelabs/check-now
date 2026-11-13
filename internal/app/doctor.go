@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -25,6 +26,7 @@ type Finding struct {
 // Diagnose performs local adapter checks and cache reads. It never calls the
 // adapter's refresh mode and never writes cache records.
 func Diagnose(ctx context.Context, plugins []string, store cache.Store, timeout time.Duration) []Finding {
+	sanitizeAdapterText := newAdapterTextSanitizer()
 	findings := []Finding{probeCache(store.Dir)}
 	if len(plugins) == 0 {
 		findings = append(findings, Finding{
@@ -34,7 +36,7 @@ func Diagnose(ctx context.Context, plugins []string, store cache.Store, timeout 
 		})
 	}
 	for _, plugin := range plugins {
-		id := displayID(discovery.ID(plugin))
+		id := sanitizeAdapterText(discovery.ID(plugin))
 		base := runner.Runner{Timeout: timeout}
 		_, err := base.Metadata(ctx, plugin, discovery.ID(plugin))
 		if err != nil {
@@ -58,10 +60,10 @@ func Diagnose(ctx context.Context, plugins []string, store cache.Store, timeout 
 			} else {
 				for _, check := range health.Checks {
 					findings = append(findings, Finding{
-						Component: "plugin." + id + "." + displayID(check.Code),
+						Component: "plugin." + id + "." + sanitizeAdapterText(check.Code),
 						Status:    check.Status,
-						Summary:   safeText(check.Summary),
-						Repair:    safeText(check.Repair),
+						Summary:   sanitizeAdapterText(check.Summary),
+						Repair:    sanitizeAdapterText(check.Repair),
 					})
 				}
 			}
@@ -253,6 +255,29 @@ func safeText(value string) string {
 		}
 	}
 	return strings.TrimSpace(b.String())
+}
+
+func newAdapterTextSanitizer() func(string) string {
+	seen := make(map[string]struct{})
+	values := make([]string, 0)
+	for _, variable := range os.Environ() {
+		_, envValue, ok := strings.Cut(variable, "=")
+		if !ok || envValue == "" {
+			continue
+		}
+		if _, ok := seen[envValue]; ok {
+			continue
+		}
+		seen[envValue] = struct{}{}
+		values = append(values, envValue)
+	}
+	sort.Slice(values, func(i, j int) bool { return len(values[i]) > len(values[j]) })
+	return func(value string) string {
+		for _, envValue := range values {
+			value = strings.ReplaceAll(value, envValue, "[redacted]")
+		}
+		return safeText(value)
+	}
 }
 
 func displayID(value string) string {
