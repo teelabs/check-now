@@ -40,7 +40,7 @@ func TestCreateNonInteractiveGeneratesPluginBundle(t *testing.T) {
 		t.Fatalf("generated smoke test: %v: %s", err, out)
 	}
 	cmd := exec.Command(filepath.Join(got, "plugin.sh"))
-	cmd.Stdin = strings.NewReader(`{"protocol":1,"id":"nodejs","mode":"metadata"}` + "\n")
+	cmd.Stdin = strings.NewReader(`{"protocol":2,"id":"nodejs","mode":"metadata"}` + "\n")
 	metaOutput, err := cmd.Output()
 	if err != nil {
 		t.Fatal(err)

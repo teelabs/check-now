@@ -8,6 +8,7 @@ source=https://github.com/anthropics/claude-code
 request=$(cat)
 now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 mode=$(printf '%s' "$request" | tr '\n' ' ' | sed -n 's/.*"mode"[[:space:]]*:[[:space:]]*"\([^" ]*\)".*/\1/p')
+. "$(dirname "$0")/health-check.sh"
 
 resolve_command() {
   command_path=$(command -v "$cmd" 2>/dev/null || true)
@@ -38,12 +39,16 @@ detect_manager() {
 
 case "$mode" in
   metadata)
-    printf '%s\n' '{"protocol":1,"id":"claude","name":"Claude Code","description":"Checks Claude Code installations","tool":"claude","source_url":"https://github.com/anthropics/claude-code","runtime":"shell","capabilities":["current","refresh"]}'
+    printf '%s\n' '{"protocol":2,"id":"claude","name":"Claude Code","description":"Checks Claude Code installations","tool":"claude","source_url":"https://github.com/anthropics/claude-code","runtime":"shell","capabilities":["current","refresh","health"]}'
+    exit 0
+    ;;
+  health)
+    check_now_health "$id" "$cmd" CHECK_NOW_CLAUDE_RELEASE_URL CHECK_NOW_CLAUDE_TARGET "$now"
     exit 0
     ;;
   current)
     if ! command -v "$cmd" >/dev/null 2>&1; then
-      printf '{"protocol":1,"id":"%s","status":"not_installed","tool":"%s","checked_at":"%s"}\n' "$id" "$name" "$now"
+      printf '{"protocol":2,"id":"%s","status":"not_installed","tool":"%s","checked_at":"%s"}\n' "$id" "$name" "$now"
     else
       version=$($cmd --version 2>/dev/null | head -n 1 | sed 's/[^0-9]*\([0-9][0-9.]*\).*/\1/' || true)
       if [ -n "$version" ]; then
@@ -51,9 +56,9 @@ case "$mode" in
         manager=$(detect_manager "$real_bin")
         manager_field=
         [ -n "$manager" ] && manager_field=',"manager":"'"$manager"'"'
-        printf '{"protocol":1,"id":"%s","status":"up_to_date","tool":"%s","installation_kind":"cli"%s,"current_version":"%s","checked_at":"%s"}\n' "$id" "$name" "$manager_field" "$version" "$now"
+        printf '{"protocol":2,"id":"%s","status":"up_to_date","tool":"%s","installation_kind":"cli"%s,"current_version":"%s","checked_at":"%s"}\n' "$id" "$name" "$manager_field" "$version" "$now"
       else
-        printf '{"protocol":1,"id":"%s","status":"unknown","tool":"%s","checked_at":"%s"}\n' "$id" "$name" "$now"
+        printf '{"protocol":2,"id":"%s","status":"unknown","tool":"%s","checked_at":"%s"}\n' "$id" "$name" "$now"
       fi
     fi
     exit 0
@@ -63,7 +68,7 @@ case "$mode" in
 esac
 
 if ! command -v "$cmd" >/dev/null 2>&1; then
-  printf '{"protocol":1,"id":"%s","status":"not_installed","tool":"%s","checked_at":"%s","explanation":"Command not found"}\n' "$id" "$name" "$now"
+  printf '{"protocol":2,"id":"%s","status":"not_installed","tool":"%s","checked_at":"%s","explanation":"Command not found"}\n' "$id" "$name" "$now"
   exit 0
 fi
 
@@ -91,15 +96,15 @@ is_newer() {
 }
 
 if [ -z "$version" ] || [ -z "$target" ]; then
-  printf '{"protocol":1,"id":"%s","status":"unknown","tool":"%s","checked_at":"%s","source_url":"%s","explanation":"Could not determine installed or latest release version"}\n' "$id" "$name" "$now" "$source"
+  printf '{"protocol":2,"id":"%s","status":"unknown","tool":"%s","checked_at":"%s","source_url":"%s","explanation":"Could not determine installed or latest release version"}\n' "$id" "$name" "$now" "$source"
 elif is_newer "$version" "$target"; then
   case "$manager" in
-    claude-native) printf '{"protocol":1,"id":"%s","status":"update_available","tool":"%s","installation_kind":"cli","manager":"claude-native","current_version":"%s","target_version":"%s","argv":["claude","update"],"checked_at":"%s","source_url":"%s"}\n' "$id" "$name" "$version" "$target" "$now" "$source" ;;
-    npm) printf '{"protocol":1,"id":"%s","status":"update_available","tool":"%s","installation_kind":"cli","manager":"npm","current_version":"%s","target_version":"%s","argv":["npm","install","-g","@anthropic-ai/claude-code@latest"],"checked_at":"%s","source_url":"%s"}\n' "$id" "$name" "$version" "$target" "$now" "$source" ;;
-    *) printf '{"protocol":1,"id":"%s","status":"unknown","tool":"%s","installation_kind":"cli","current_version":"%s","target_version":"%s","checked_at":"%s","source_url":"%s","explanation":"A newer official release exists, but the installation manager is not proven"}\n' "$id" "$name" "$version" "$target" "$now" "$source" ;;
+    claude-native) printf '{"protocol":2,"id":"%s","status":"update_available","tool":"%s","installation_kind":"cli","manager":"claude-native","current_version":"%s","target_version":"%s","argv":["claude","update"],"checked_at":"%s","source_url":"%s"}\n' "$id" "$name" "$version" "$target" "$now" "$source" ;;
+    npm) printf '{"protocol":2,"id":"%s","status":"update_available","tool":"%s","installation_kind":"cli","manager":"npm","current_version":"%s","target_version":"%s","argv":["npm","install","-g","@anthropic-ai/claude-code@latest"],"checked_at":"%s","source_url":"%s"}\n' "$id" "$name" "$version" "$target" "$now" "$source" ;;
+    *) printf '{"protocol":2,"id":"%s","status":"unknown","tool":"%s","installation_kind":"cli","current_version":"%s","target_version":"%s","checked_at":"%s","source_url":"%s","explanation":"A newer official release exists, but the installation manager is not proven"}\n' "$id" "$name" "$version" "$target" "$now" "$source" ;;
   esac
 else
   manager_field=
   [ -n "$manager" ] && manager_field=',"manager":"'"$manager"'"'
-  printf '{"protocol":1,"id":"%s","status":"up_to_date","tool":"%s","installation_kind":"cli"%s,"current_version":"%s","checked_at":"%s","source_url":"%s"}\n' "$id" "$name" "$manager_field" "$version" "$now" "$source"
+  printf '{"protocol":2,"id":"%s","status":"up_to_date","tool":"%s","installation_kind":"cli"%s,"current_version":"%s","checked_at":"%s","source_url":"%s"}\n' "$id" "$name" "$manager_field" "$version" "$now" "$source"
 fi

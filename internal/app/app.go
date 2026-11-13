@@ -55,6 +55,7 @@ func (a App) refresh(ctx context.Context, force, background bool) error {
 	var failures []error
 	for _, p := range a.Plugins {
 		id := discovery.ID(p)
+		checkedAt := time.Now().UTC().Format(time.RFC3339)
 		old, _ := a.Store.ReadTarget(id)
 		if force {
 			c := a.Store.ReadControl(id)
@@ -75,12 +76,19 @@ func (a App) refresh(ctx context.Context, force, background bool) error {
 		req := protocol.Request{Protocol: protocol.Version, ID: id, Mode: protocol.ModeRefresh, Timestamp: time.Now().UTC().Format(time.RFC3339), Prior: prior}
 		r, e := runner.Runner{Timeout: a.Timeout}.Run(ctx, p, req)
 		if e != nil {
-			fmt.Fprintf(os.Stderr, "check-now: %s: %v\n", id, e)
+			outcome := runner.FailureOutcome(e)
+			fmt.Fprintf(os.Stderr, "check-now: %s: refresh failed (%s)\n", id, outcome)
+			if historyErr := a.Store.WriteRefresh(id, cache.RefreshRecord{CheckedAt: checkedAt, Outcome: outcome}); historyErr != nil {
+				return historyErr
+			}
 			failures = append(failures, e)
 			continue
 		}
 		if r.Status == "unknown" && old.ID == id {
 			fmt.Fprintf(os.Stderr, "check-now: %s: preserving previous cache after unknown refresh\n", id)
+			if historyErr := a.Store.WriteRefresh(id, cache.RefreshRecord{CheckedAt: checkedAt, Outcome: "unknown"}); historyErr != nil {
+				return historyErr
+			}
 			continue
 		}
 		previous := a.Store.ReadControl(id)
@@ -89,9 +97,18 @@ func (a App) refresh(ctx context.Context, force, background bool) error {
 		}
 		previous.Fingerprint = cache.Fingerprint(r)
 		if e := a.Store.WriteTarget(r); e != nil {
+			_ = a.Store.WriteRefresh(id, cache.RefreshRecord{CheckedAt: checkedAt, Outcome: "cache_failure"})
 			return e
 		}
 		if e := a.Store.WriteControl(id, previous); e != nil {
+			_ = a.Store.WriteRefresh(id, cache.RefreshRecord{CheckedAt: checkedAt, Outcome: "cache_failure"})
+			return e
+		}
+		outcome := "success"
+		if r.Status == "unknown" {
+			outcome = "unknown"
+		}
+		if e := a.Store.WriteRefresh(id, cache.RefreshRecord{CheckedAt: checkedAt, Outcome: outcome}); e != nil {
 			return e
 		}
 	}

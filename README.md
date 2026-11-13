@@ -84,7 +84,18 @@ The installer can add Bash/Zsh/Ksh/Dash/Fish hooks with `--shell-hook`. With `--
 
 ## Commands
 
+Run check-now without arguments, or use -h, --help, or help to see the command guide. Add --help to a command for its usage, options, and an example:
+
 ```sh
+check-now help
+check-now help plugin create
+check-now refresh --help
+```
+
+The available commands are:
+
+```sh
+check-now version
 check-now shell
 check-now refresh
 check-now refresh --force
@@ -95,13 +106,17 @@ check-now plugin create <id>
 check-now completion [bash|zsh|fish|powershell|pwsh]
 ```
 
+version prints the installed release. shell displays cached update information and safe commands. refresh updates plugin information, and --force performs an immediate foreground refresh. dismiss hides displayed targets for a plugin ID. list shows discovered plugins. doctor reports per-setting, adapter, local probe, cache, and latest refresh findings. plugin create interactively scaffolds a local checker, with flags available for non-interactive use. completion prints a static script for a supported shell.
+
+`doctor` stays local: it calls adapter `health` and `current`, reads target/current/control cache records and refresh history, and probes cache access with a temporary create/read/remove. It never refreshes remote sources, rewrites cache records, or applies repairs. Findings include status, a short explanation, and an optional suggested repair. A completed report exits successfully regardless of findings; invalid command usage still exits with an error. Configuration values and plugin stderr are not printed or stored in refresh history.
+
 Without a shell argument, `completion` detects the basename of `$SHELL`; when that is absent or unrecognized, `PSModulePath` selects PowerShell. Completion is static and side-effect free: it never discovers plugins, reads the cache, accesses the network, or dynamically enumerates custom plugin IDs.
 
 `shell` is display-only. It probes each installed tool locally with `current`, reads cached targets, and schedules a bounded non-forced background `refresh` only when target data is missing or stale. Local probing is synchronous; remote discovery is asynchronous. Use `refresh --force` when you need an immediate foreground check, or `check-now dismiss <plugin-id>` to hide all currently displayed targets for a canonical plugin ID. A new target fingerprint or forced refresh clears that dismissal.
 
 ## Environment variables
 
-All variables are optional. Invalid duration values fall back to their defaults. Path-list variables use the platform path separator (`:` on Unix).
+All variables are optional. Invalid duration values fall back to their defaults during normal command execution and appear as findings in `check-now doctor`. Path-list variables use the platform path separator (`:` on Unix).
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
@@ -132,7 +147,7 @@ Built-in plugins query their official release sources at refresh time. Node pref
 
 When a checker can identify more than one useful target, `check-now shell` renders an aligned table with the tool name, current version, target version/track, safe update command, and source URL. For Node this can show both the newest release in the current major line and the newest release overall. A same-major target disappears as soon as the live current probe reaches it; a newer latest-major target remains informational. Shared name, current version, and source values are centered across grouped rows.
 
-Plugins are trusted local executables. The host does not download, install, evaluate, or execute returned `argv`; it only displays safely quoted text. A failed, timed-out, malformed, or offline plugin leaves its last valid cache untouched.
+Plugins are trusted local executables. The host does not download, install, evaluate, or execute returned `argv`; it only displays safely quoted text. A failed, timed-out, malformed, or offline plugin leaves its last valid target cache untouched. Each attempted refresh records only its timestamp and a bounded outcome category so `doctor` can explain stale targets after failures.
 
 See [plugin authoring](docs/plugin-authoring.md) for the protocol.
 
@@ -151,10 +166,10 @@ For a generated plugin, run its `test.sh`, then `check-now list`, `check-now doc
 
 ## Creating a plugin
 
-The native generator is interactive and explains each field. ID, display name, and description are required; command/tool, official source URL, and installation manager are optional. Runtime defaults to `shell` and capabilities to `refresh`.
+The native generator is interactive and explains each field. ID, display name, and description are required; command/tool, official source URL, and installation manager are optional. Runtime defaults to `shell` and capabilities to `current,refresh,health`.
 
 ```sh
-check-now plugin create nodejs --name "Node.js" --description "Checks Node.js installations" --tool node --source-url https://nodejs.org --runtime shell --manager fnm --capability refresh --non-interactive
+check-now plugin create nodejs --name "Node.js" --description "Checks Node.js installations" --tool node --source-url https://nodejs.org --runtime shell --manager fnm --capability current,refresh,health --non-interactive
 ```
 
 Generated plugins include implementation guidance, an agent-facing `AGENTS.md`, and an offline smoke test. See [plugin development](docs/plugin-development.md), [plugin protocol](docs/plugin-protocol.md), and [architecture](docs/architecture.md).
