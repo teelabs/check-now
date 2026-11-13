@@ -36,4 +36,6 @@
 - [x] Review CI and workflow configuration against the project decisions.
 - [x] Update version and changelog for the MINOR feature release.
 - [x] Run unit, race, vet, plugin, shell syntax, and release build/verification checks.
-- [x] Report readiness and stop before external integration or publication.
+- [x] Report readiness and require explicit authorization before external publication.
+
+Version decision for the follow-up Pages dispatch correction: keep `0.2.0`; the workflow-only change does not alter release artifacts. Record it under `[Unreleased]` and deploy the already published `v0.2.0` after the correction is merged.
