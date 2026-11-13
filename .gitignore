@@ -6,3 +6,4 @@
 *.stdout
 *.tmp
 .cache/
+.worktrees/
