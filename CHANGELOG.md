@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-13
+
 ### Added
 
 - Added a plain-text command help guide with per-command usage, options, and examples.
@@ -12,7 +14,7 @@ All notable changes to this project are documented here.
 
 ### Changed
 
-- Upgraded the adapter protocol to v2, requiring `health` support from every adapter; existing custom v1 adapters must be updated. The software remains unofficial; this work targets the next minor version, 0.3.0, and is not an official release.
+- Upgraded the adapter protocol to v2, requiring `health` support from every adapter; existing custom v1 adapters must be updated. The software remains unofficial.
 
 ### Fixed
 
