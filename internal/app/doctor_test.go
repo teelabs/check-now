@@ -100,10 +100,10 @@ esac
 	if !ok || corrupt.Status != "error" || corrupt.Repair == "" {
 		t.Fatalf("target finding=%+v ok=%v", corrupt, ok)
 	}
-	var report strings.Builder
-	WriteFindings(&report, findings)
-	if strings.Contains(report.String(), "private-environment-secret") {
-		t.Fatal("plugin stderr leaked into doctor output")
+	for _, finding := range findings {
+		if strings.Contains(finding.Component+finding.Plugin+finding.Summary+finding.Repair, "private-environment-secret") {
+			t.Fatalf("plugin stderr leaked into doctor finding: %+v", finding)
+		}
 	}
 }
 
@@ -117,7 +117,7 @@ func TestDiagnoseClassifiesCacheRecordStates(t *testing.T) {
 			name: "missing",
 			want: map[string]string{
 				"cache.tool.target": "warning", "cache.tool.current": "warning",
-				"cache.tool.control": "ok", "cache.tool.refresh": "warning",
+				"cache.tool.control": "ok", "cache.tool.refresh": "not_checked",
 			},
 		},
 		{
@@ -175,6 +175,17 @@ func TestDiagnoseClassifiesCacheRecordStates(t *testing.T) {
 	}
 }
 
+func TestDiagnoseTreatsMissingRefreshHistoryAsNotChecked(t *testing.T) {
+	root := t.TempDir()
+	plugin := writeHealthyDoctorPlugin(t, root)
+	store := cache.New(filepath.Join(root, "cache"), time.Hour)
+	findings := Diagnose(context.Background(), []string{plugin}, store, time.Second)
+	finding, ok := findFinding(findings, "cache.tool.refresh")
+	if !ok || finding.Status != "not_checked" || finding.Repair != "" {
+		t.Fatalf("refresh finding=%+v ok=%v; want neutral not_checked without repair", finding, ok)
+	}
+}
+
 func writeHealthyDoctorPlugin(t *testing.T, root string) string {
 	t.Helper()
 	plugin := filepath.Join(root, "tool", "plugin.sh")
@@ -196,7 +207,7 @@ esac
 	return plugin
 }
 
-func TestDiagnoseRedactsEnvironmentValuesFromAdapterHealthText(t *testing.T) {
+func TestDiagnoseRedactsEnvironmentValuesAtTokenBoundaries(t *testing.T) {
 	const secret = "doctor-private-environment-sentinel"
 	const shortSecret = "Z"
 	t.Setenv("CHECK_NOW_DOCTOR_TEST_SECRET", secret)
@@ -213,16 +224,30 @@ func TestDiagnoseRedactsEnvironmentValuesFromAdapterHealthText(t *testing.T) {
 		t.Fatal(err)
 	}
 	body = []byte(strings.ReplaceAll(string(body), `"id":"tool"`, `"id":"`+secret+`"`))
-	replacement := `"code":"` + secret + `","summary":"Found ` + secret + ` and prefix` + shortSecret + `suffix in configuration.","repair":"Unset ` + secret + ` and prefix` + shortSecret + `suffix."`
-	body = []byte(strings.Replace(string(body), `"code":"config.ready","summary":"Configuration is ready."`, replacement, 1))
+	replacement := `"code":"` + secret + `","status":"ok","summary":"Found ` + secret + ` at the release endpoint; prefix` + shortSecret + `suffix, prefix` + shortSecret + shortSecret + `., and standalone ` + shortSecret + ` value.","repair":"Unset ` + secret + ` and preserve prefix` + shortSecret + `suffix; remove standalone ` + shortSecret + ` value."`
+	body = []byte(strings.Replace(string(body), `"code":"config.ready","status":"ok","summary":"Configuration is ready."`, replacement, 1))
 	if err := os.WriteFile(plugin, body, 0755); err != nil {
 		t.Fatal(err)
 	}
 	findings := Diagnose(context.Background(), []string{plugin}, cache.New(filepath.Join(root, "cache"), time.Hour), time.Second)
 	var report strings.Builder
-	WriteFindings(&report, findings)
-	if strings.Contains(report.String(), secret) || strings.Contains(report.String(), shortSecret) {
-		t.Fatalf("doctor report exposed adapter-provided environment value: %s", report.String())
+	for _, finding := range findings {
+		report.WriteString(finding.Component + finding.Plugin + finding.Summary + finding.Repair)
+	}
+	if strings.Contains(report.String(), secret) {
+		t.Fatalf("doctor findings exposed a complete environment value: %s", report.String())
+	}
+	if !strings.Contains(report.String(), "prefixZsuffix") {
+		t.Fatalf("doctor corrupted an embedded environment substring: %s", report.String())
+	}
+	if !strings.Contains(report.String(), "prefixZZ.") {
+		t.Fatalf("doctor corrupted repeated embedded environment substrings: %s", report.String())
+	}
+	if !strings.Contains(report.String(), "release endpoint") {
+		t.Fatalf("doctor corrupted ordinary adapter wording: %s", report.String())
+	}
+	if strings.Contains(report.String(), "standalone Z value") {
+		t.Fatalf("doctor did not redact a complete short environment value: %s", report.String())
 	}
 }
 

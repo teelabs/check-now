@@ -8,16 +8,17 @@ import (
 	"check-now/internal/runner"
 	"context"
 	"fmt"
-	"io"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 type Finding struct {
 	Component string
+	Plugin    string
 	Status    string
 	Summary   string
 	Repair    string
@@ -41,7 +42,7 @@ func Diagnose(ctx context.Context, plugins []string, store cache.Store, timeout 
 		_, err := base.Metadata(ctx, plugin, discovery.ID(plugin))
 		if err != nil {
 			findings = append(findings, Finding{
-				Component: "plugin." + id + ".metadata", Status: "error",
+				Component: "plugin." + id + ".metadata", Plugin: id, Status: "error",
 				Summary: "Adapter metadata is invalid or unavailable.",
 				Repair:  "Update the adapter to protocol v2 and advertise current, refresh, and health capabilities.",
 			})
@@ -53,7 +54,7 @@ func Diagnose(ctx context.Context, plugins []string, store cache.Store, timeout 
 					status, summary = "warning", "Adapter health checks timed out."
 				}
 				findings = append(findings, Finding{
-					Component: "plugin." + id + ".health", Status: status,
+					Component: "plugin." + id + ".health", Plugin: id, Status: status,
 					Summary: summary,
 					Repair:  "Check the adapter's local health mode and protocol v2 response.",
 				})
@@ -61,6 +62,7 @@ func Diagnose(ctx context.Context, plugins []string, store cache.Store, timeout 
 				for _, check := range health.Checks {
 					findings = append(findings, Finding{
 						Component: "plugin." + id + "." + sanitizeAdapterText(check.Code),
+						Plugin:    id,
 						Status:    check.Status,
 						Summary:   sanitizeAdapterText(check.Summary),
 						Repair:    sanitizeAdapterText(check.Repair),
@@ -75,27 +77,34 @@ func Diagnose(ctx context.Context, plugins []string, store cache.Store, timeout 
 		})
 		if currentErr != nil {
 			findings = append(findings, Finding{
-				Component: "plugin." + id + ".current", Status: "warning",
+				Component: "plugin." + id + ".current", Plugin: id, Status: "warning",
 				Summary: "The local current-version probe failed.",
 				Repair:  "Check the adapter's current mode and local command installation.",
 			})
 		} else if current.Status == "unknown" || current.Status == "not_installed" {
 			findings = append(findings, Finding{
-				Component: "plugin." + id + ".current", Status: "warning",
+				Component: "plugin." + id + ".current", Plugin: id, Status: "warning",
 				Summary: "The local probe could not confirm an installed version.",
 				Repair:  "Check whether the tool is installed and available on PATH.",
 			})
 		} else {
 			findings = append(findings, Finding{
-				Component: "plugin." + id + ".current", Status: "ok",
+				Component: "plugin." + id + ".current", Plugin: id, Status: "ok",
 				Summary: "The local current-version probe completed.",
 			})
 		}
 
-		findings = append(findings, inspectTarget(store, id, discovery.ID(plugin))...)
-		findings = append(findings, inspectCurrent(store, id, discovery.ID(plugin))...)
-		findings = append(findings, inspectControl(store, id, discovery.ID(plugin))...)
-		findings = append(findings, inspectRefresh(store, id, discovery.ID(plugin))...)
+		findings = append(findings, withPlugin(inspectTarget(store, id, discovery.ID(plugin)), id)...)
+		findings = append(findings, withPlugin(inspectCurrent(store, id, discovery.ID(plugin)), id)...)
+		findings = append(findings, withPlugin(inspectControl(store, id, discovery.ID(plugin)), id)...)
+		findings = append(findings, withPlugin(inspectRefresh(store, id, discovery.ID(plugin)), id)...)
+	}
+	return findings
+}
+
+func withPlugin(findings []Finding, plugin string) []Finding {
+	for index := range findings {
+		findings[index].Plugin = plugin
 	}
 	return findings
 }
@@ -175,7 +184,7 @@ func inspectRefresh(store cache.Store, displayID, cacheID string) []Finding {
 	component := "cache." + displayID + ".refresh"
 	switch state {
 	case cache.RecordMissing:
-		return []Finding{{Component: component, Status: "warning", Summary: "No refresh outcome has been recorded.", Repair: "Run check-now refresh --force to check the adapter and record an outcome."}}
+		return []Finding{{Component: component, Status: "not_checked", Summary: "No refresh attempt has been recorded."}}
 	case cache.RecordCorrupt:
 		return []Finding{{Component: component, Status: "warning", Summary: "Refresh history is unreadable or has an unsupported outcome.", Repair: "Run check-now refresh --force to record a new outcome."}}
 	case cache.RecordUnreadable:
@@ -233,15 +242,6 @@ func probeCache(dir string) Finding {
 	return Finding{Component: component, Status: "ok", Summary: "The cache directory passed a temporary create, read, and remove probe."}
 }
 
-func WriteFindings(w io.Writer, findings []Finding) {
-	for _, finding := range findings {
-		fmt.Fprintf(w, "[%s] %s: %s\n", strings.ToUpper(finding.Status), finding.Component, safeText(finding.Summary))
-		if finding.Repair != "" {
-			fmt.Fprintf(w, "  Suggested repair: %s\n", safeText(finding.Repair))
-		}
-	}
-}
-
 func safeText(value string) string {
 	var b strings.Builder
 	for _, r := range value {
@@ -274,13 +274,54 @@ func newAdapterTextSanitizer() func(string) string {
 	sort.Slice(values, func(i, j int) bool { return len(values[i]) > len(values[j]) })
 	return func(value string) string {
 		for _, envValue := range values {
-			value = strings.ReplaceAll(value, envValue, "[redacted]")
+			value = redactTokenMatches(value, envValue)
 		}
 		return safeText(value)
 	}
 }
 
-func displayID(value string) string {
-	value = filepath.Base(value)
-	return safeText(value)
+func redactTokenMatches(value, token string) string {
+	if token == "" {
+		return value
+	}
+	var out strings.Builder
+	cursor := 0
+	for cursor < len(value) {
+		index := strings.Index(value[cursor:], token)
+		if index < 0 {
+			break
+		}
+		start := cursor + index
+		end := start + len(token)
+		if wordRuneBefore(value, start) || wordRuneAfter(value, end) {
+			out.WriteString(value[cursor:end])
+			cursor = end
+			continue
+		}
+		out.WriteString(value[cursor:start])
+		out.WriteString("[redacted]")
+		cursor = end
+	}
+	out.WriteString(value[cursor:])
+	return out.String()
+}
+
+func wordRuneBefore(value string, index int) bool {
+	if index == 0 {
+		return false
+	}
+	r, _ := utf8.DecodeLastRuneInString(value[:index])
+	return isWordRune(r)
+}
+
+func wordRuneAfter(value string, index int) bool {
+	if index == len(value) {
+		return false
+	}
+	r, _ := utf8.DecodeRuneInString(value[index:])
+	return isWordRune(r)
+}
+
+func isWordRune(r rune) bool {
+	return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_'
 }

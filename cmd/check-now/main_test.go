@@ -129,7 +129,10 @@ esac
 	if code != 0 || stderr != "" {
 		t.Fatalf("doctor code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
-	for _, want := range []string{"plugin.tool.config.ready", "cache.tool.target", "settings.plugin_timeout", "Suggested repair", "cache.writable"} {
+	if strings.Contains(stdout, "\x1b[") {
+		t.Fatalf("redirected doctor output contains ANSI colors: %q", stdout)
+	}
+	for _, want := range []string{"Configuration", "Settings", "Plugin roots", "Adapters", "Cache", "config.ready", "target", "plugin_timeout", "Suggested repair", "writable", "[NOT CHECKED]"} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("doctor output missing %q: %s", want, stdout)
 		}

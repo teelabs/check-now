@@ -110,6 +110,8 @@ version prints the installed release. shell displays cached update information a
 
 `doctor` stays local: it calls adapter `health` and `current`, reads target/current/control cache records and refresh history, and probes cache access with a temporary create/read/remove. It never refreshes remote sources, rewrites cache records, or applies repairs. Findings include status, a short explanation, and an optional suggested repair. A completed report exits successfully regardless of findings; invalid command usage still exits with an error. Configuration values and plugin stderr are not printed or stored in refresh history.
 
+The human report groups configuration, adapter, and cache findings into sections. It uses terminal colors only when writing to an interactive terminal; redirected output stays plain. Missing refresh history is shown as `NOT CHECKED`, not as a warning.
+
 Without a shell argument, `completion` detects the basename of `$SHELL`; when that is absent or unrecognized, `PSModulePath` selects PowerShell. Completion is static and side-effect free: it never discovers plugins, reads the cache, accesses the network, or dynamically enumerates custom plugin IDs.
 
 `shell` is display-only. It probes each installed tool locally with `current`, reads cached targets, and schedules a bounded non-forced background `refresh` only when target data is missing or stale. Local probing is synchronous; remote discovery is asynchronous. Use `refresh --force` when you need an immediate foreground check, or `check-now dismiss <plugin-id>` to hide all currently displayed targets for a canonical plugin ID. A new target fingerprint or forced refresh clears that dismissal.
