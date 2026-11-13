@@ -2,7 +2,9 @@
 
 Run `check-now plugin create ... --non-interactive` with all required fields, or use the wizard and read its short field descriptions. Use `--force` only when replacing the exact intended plugin folder.
 
-If a plugin is absent from `check-now list`, verify `plugin.sh` exists, is executable, and responds to a metadata request whose ID matches its folder. `check-now doctor` reports the discovered set and cache path. Malformed output, stdout diagnostics, permissions, non-zero exits, and timeouts are rejected; diagnostics should be sent to stderr.
+If a plugin is absent from `check-now list`, verify `plugin.sh` exists, is executable, and responds to a metadata request whose ID matches its folder. `check-now doctor` reports host configuration, each adapter's offline health checks and local current probe, target/current/control cache state and freshness, refresh history, and whether the cache directory passes a temporary create/read/remove probe. It does not fetch remote data, rewrite cache records, or apply suggested repairs. The report returns success even when it contains findings; invalid command usage still returns an error.
+
+Protocol v2 requires adapters to advertise and implement `health`. Existing protocol v1 custom adapters must be updated before they are accepted. Run `check-now plugin create <id>` for a protocol v2 scaffold, then implement its offline health checks and run the generated `test.sh`.
 
 Run the generated `test.sh`, then `go test ./...`. Tests must use local fake commands and must not require network access.
 
@@ -16,7 +18,7 @@ check-now shell
 check-now doctor
 ```
 
-If the refresh is unknown or fails, inspect stderr from the foreground refresh. A valid previous target remains visible, while an initial failed refresh can legitimately leave the target cache empty. The current version still comes from the local probe on every shell invocation.
+If the refresh is unknown or fails, inspect its bounded outcome with `check-now doctor`; raw plugin stderr is not stored in refresh history. A valid previous target remains visible, while an initial failed refresh can legitimately leave the target cache empty. The current version still comes from the local probe on every shell invocation.
 
 ## Node reports no update
 
@@ -39,7 +41,7 @@ Check `command -v claude`, `command -v codex`, and their resolved paths with `re
 Run a plugin directly with a metadata request to isolate it:
 
 ```sh
-printf '%s\n' '{"protocol":1,"id":"node","mode":"metadata","timestamp":"2026-01-01T00:00:00Z"}' | plugins/node/plugin.sh
+printf '%s\n' '{"protocol":2,"id":"node","mode":"metadata","timestamp":"2026-01-01T00:00:00Z"}' | plugins/node/plugin.sh
 ```
 
 The command must emit exactly one JSON object on stdout. Human diagnostics belong on stderr. Then verify executable permissions (`chmod +x plugins/<id>/plugin.sh plugins/<id>/test.sh`), folder/metadata ID equality, and the configured roots in `CHECK_NOW_PLUGIN_DIRS`.

@@ -8,7 +8,6 @@ import (
 	"check-now/internal/runner"
 	"check-now/internal/scaffold"
 	"context"
-	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -19,9 +18,22 @@ import (
 var version = "dev"
 
 func main() {
-	if len(os.Args) < 2 {
-		usage()
+	if page, handled, err := helpPage(os.Args[1:]); handled {
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "check-now:", err)
+			fmt.Fprintln(os.Stderr, "Run 'check-now help'")
+			os.Exit(2)
+		}
+		fmt.Fprint(os.Stdout, page)
+		return
+	}
+	if err := validateCommandArgs(os.Args[1:]); err != nil {
+		fmt.Fprintln(os.Stderr, "check-now:", err)
+		fmt.Fprintln(os.Stderr, "Run 'check-now help'")
 		os.Exit(2)
+	}
+	if len(os.Args) < 2 {
+		return
 	}
 	if os.Args[1] == "completion" {
 		if err := completionCommand(os.Args[2:]); err != nil {
@@ -36,6 +48,10 @@ func main() {
 			os.Exit(2)
 		}
 		fmt.Printf("check-now %s\n", version)
+		return
+	}
+	if os.Args[1] == "doctor" {
+		doctorCommand()
 		return
 	}
 	exe, _ := os.Executable()
@@ -91,12 +107,6 @@ func main() {
 		for _, p := range plugins {
 			fmt.Printf("%s\t%s\n", discovery.ID(p), p)
 		}
-	case "doctor":
-		if len(plugins) == 0 {
-			fmt.Println("no plugins discovered")
-			os.Exit(1)
-		}
-		fmt.Printf("plugins: %d\ncache: %s\n", len(plugins), app.DefaultCache())
 	default:
 		usage()
 		os.Exit(2)
@@ -107,25 +117,14 @@ func main() {
 	}
 }
 func createPlugin(args []string) error {
-	f := flag.NewFlagSet("plugin create", flag.ContinueOnError)
-	f.SetOutput(os.Stderr)
 	var o scaffold.Options
-	var caps string
-	var nonInteractive bool
+	caps := "current,refresh,health"
+	nonInteractive := false
+	f := newPluginCreateFlagSet(os.Stderr, &o, &caps, &nonInteractive)
 	positionalID := ""
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		positionalID, args = args[0], args[1:]
 	}
-	f.StringVar(&o.ID, "id", "", "plugin ID (the folder name)")
-	f.StringVar(&o.Name, "name", "", "display name")
-	f.StringVar(&o.Description, "description", "", "one-sentence purpose")
-	f.StringVar(&o.Tool, "tool", "", "optional local command used for detection")
-	f.StringVar(&o.SourceURL, "source-url", "", "optional official source URL")
-	f.StringVar(&o.Runtime, "runtime", "shell", "runtime (default: shell)")
-	f.StringVar(&o.Manager, "manager", "", "optional installation manager")
-	f.StringVar(&caps, "capability", "current,refresh", "capabilities (default: current,refresh)")
-	f.BoolVar(&o.Force, "force", false, "replace an existing plugin directory")
-	f.BoolVar(&nonInteractive, "non-interactive", false, "do not prompt")
 	if err := f.Parse(args); err != nil {
 		return err
 	}
@@ -138,7 +137,7 @@ func createPlugin(args []string) error {
 		promptPlugin(&o, &caps, bufio.NewReader(os.Stdin))
 	}
 	if caps == "" {
-		o.Capabilities = []string{"current", "refresh"}
+		o.Capabilities = []string{"current", "refresh", "health"}
 	} else {
 		o.Capabilities = splitCaps(caps)
 	}
@@ -159,7 +158,7 @@ func promptPlugin(o *scaffold.Options, caps *string, r *bufio.Reader) {
 	o.SourceURL = ask(r, "Official source URL", "optional; release/download/documentation URL", o.SourceURL, false)
 	o.Runtime = ask(r, "Runtime", "defaults to shell", o.Runtime, false)
 	o.Manager = ask(r, "Installation manager", "optional; for example fnm, Homebrew, apt, npm, or asdf", o.Manager, false)
-	*caps = ask(r, "Capabilities", "defaults to refresh", *caps, false)
+	*caps = ask(r, "Capabilities", "defaults to current, refresh, and health", *caps, false)
 }
 
 func ask(r *bufio.Reader, label, help, value string, required bool) string {
@@ -201,7 +200,7 @@ func pluginRoot() string {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: check-now {version|shell|refresh [--force]|dismiss <plugin-id>|list|doctor|plugin create <id> [flags]|completion [bash|zsh|fish|powershell|pwsh]}")
+	fmt.Fprintln(os.Stderr, "Run 'check-now help'")
 }
 
 func completionCommand(args []string) error {

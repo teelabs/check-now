@@ -1,12 +1,16 @@
 package protocol
 
-import "testing"
+import (
+	"encoding/json"
+	"strconv"
+	"testing"
+)
 
 func TestDecodeRejectsUnsupportedVersionAndMissingFields(t *testing.T) {
-	if _, err := DecodeResult([]byte(`{"protocol":2,"id":"node","status":"up_to_date","tool":"Node","checked_at":"2026-01-01T00:00:00Z"}`)); err == nil {
+	if _, err := DecodeResult([]byte(`{"protocol":1,"id":"node","status":"up_to_date","tool":"Node","checked_at":"2026-01-01T00:00:00Z"}`)); err == nil {
 		t.Fatal("expected unsupported protocol error")
 	}
-	if _, err := DecodeResult([]byte(`{"protocol":1,"id":"node","status":"up_to_date"}`)); err == nil {
+	if _, err := DecodeResult([]byte(`{"protocol":2,"id":"node","status":"up_to_date"}`)); err == nil {
 		t.Fatal("expected missing fields error")
 	}
 }
@@ -20,7 +24,7 @@ func TestQuoteArgvUsesPOSIXSingleQuotes(t *testing.T) {
 }
 
 func TestDecodeMetadataOmitsOptionalFieldsWithoutRejectingIt(t *testing.T) {
-	m, err := DecodeMetadata([]byte(`{"protocol":1,"id":"tool","name":"Tool","description":"Checks Tool","runtime":"shell","capabilities":["refresh"]}`))
+	m, err := DecodeMetadata([]byte(`{"protocol":2,"id":"tool","name":"Tool","description":"Checks Tool","runtime":"shell","capabilities":["current","refresh","health"]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,22 +33,29 @@ func TestDecodeMetadataOmitsOptionalFieldsWithoutRejectingIt(t *testing.T) {
 	}
 }
 
+func TestDecodeMetadataRequiresHealthCapability(t *testing.T) {
+	data := []byte(`{"protocol":2,"id":"tool","name":"Tool","description":"Checks Tool","runtime":"shell","capabilities":["current","refresh"]}`)
+	if _, err := DecodeMetadata(data); err == nil {
+		t.Fatal("metadata without health capability accepted")
+	}
+}
+
 func TestDecodeRejectsTrailingJSONGarbage(t *testing.T) {
-	data := `{"protocol":1,"id":"x","tool":"X","status":"unknown","checked_at":"2026-01-01T00:00:00Z"} garbage`
+	data := `{"protocol":2,"id":"x","tool":"X","status":"unknown","checked_at":"2026-01-01T00:00:00Z"} garbage`
 	if _, err := DecodeResult([]byte(data)); err == nil {
 		t.Fatal("trailing garbage accepted")
 	}
 }
 
 func TestDecodeRejectsMalformedCheckedAt(t *testing.T) {
-	data := `{"protocol":1,"id":"x","tool":"X","status":"unknown","checked_at":"not-a-timestamp"}`
+	data := `{"protocol":2,"id":"x","tool":"X","status":"unknown","checked_at":"not-a-timestamp"}`
 	if _, err := DecodeResult([]byte(data)); err == nil {
 		t.Fatal("malformed checked_at accepted")
 	}
 }
 
 func TestDecodeResultAcceptsOptionalUpdateChoices(t *testing.T) {
-	r, err := DecodeResult([]byte(`{"protocol":1,"id":"node","tool":"Node","status":"update_available","current_version":"24.19.0","updates":[{"scope":"same_major","track":"24.x","version":"24.20.0","argv":["fnm","install","24.20.0"]},{"scope":"latest","track":"latest","version":"26.12.1"}],"checked_at":"2026-01-01T00:00:00Z"}`))
+	r, err := DecodeResult([]byte(`{"protocol":2,"id":"node","tool":"Node","status":"update_available","current_version":"24.19.0","updates":[{"scope":"same_major","track":"24.x","version":"24.20.0","argv":["fnm","install","24.20.0"]},{"scope":"latest","track":"latest","version":"26.12.1"}],"checked_at":"2026-01-01T00:00:00Z"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,12 +65,50 @@ func TestDecodeResultAcceptsOptionalUpdateChoices(t *testing.T) {
 }
 
 func TestValidateRequestAcceptsCurrentAndRefreshOnly(t *testing.T) {
-	for _, mode := range []string{ModeCurrent, ModeRefresh} {
+	for _, mode := range []string{ModeCurrent, ModeRefresh, ModeHealth} {
 		if err := ValidateRequest(Request{Protocol: Version, ID: "tool", Mode: mode}); err != nil {
 			t.Fatalf("mode %s: %v", mode, err)
 		}
 	}
 	if err := ValidateRequest(Request{Protocol: Version, ID: "tool", Mode: "bogus"}); err == nil {
 		t.Fatal("unsupported mode accepted")
+	}
+}
+
+func TestDecodeHealthValidatesStructuredChecks(t *testing.T) {
+	data := []byte(`{"protocol":2,"id":"node","checked_at":"2026-01-01T00:00:00Z","checks":[{"code":"command.available","status":"warning","summary":"Node was not found on PATH","repair":"Install Node or correct PATH."}]}`)
+	h, err := DecodeHealth(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h.ID != "node" || len(h.Checks) != 1 || h.Checks[0].Status != "warning" || h.Checks[0].Repair == "" {
+		t.Fatalf("health=%+v", h)
+	}
+}
+
+func TestDecodeHealthRejectsInvalidChecks(t *testing.T) {
+	for _, data := range []string{
+		`{"protocol":2,"id":"node","checked_at":"2026-01-01T00:00:00Z","checks":[{"code":"","status":"ok","summary":"fine"}]}`,
+		`{"protocol":2,"id":"node","checked_at":"2026-01-01T00:00:00Z","checks":[{"code":"bad code","status":"ok","summary":"fine"}]}`,
+		`{"protocol":2,"id":"node","checked_at":"2026-01-01T00:00:00Z","checks":[{"code":"probe","status":"broken","summary":"fine"}]}`,
+		`{"protocol":2,"id":"node","checked_at":"bad","checks":[]}`,
+	} {
+		if _, err := DecodeHealth([]byte(data)); err == nil {
+			t.Fatalf("invalid health accepted: %s", data)
+		}
+	}
+}
+
+func TestDecodeHealthRejectsTooManyChecks(t *testing.T) {
+	checks := make([]HealthCheck, 65)
+	for i := range checks {
+		checks[i] = HealthCheck{Code: "check." + strconv.Itoa(i), Status: "ok", Summary: "Check passed."}
+	}
+	data, err := json.Marshal(Health{Protocol: Version, ID: "tool", CheckedAt: "2026-01-01T00:00:00Z", Checks: checks})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DecodeHealth(data); err == nil {
+		t.Fatal("health response with more than 64 checks accepted")
 	}
 }

@@ -2,24 +2,26 @@
 set -u
 # The Node checker owns detection, manager lookup, release selection, and protocol output.
 id=node; name=Node; cmd=node; source=https://nodejs.org/en/download
+. "$(dirname "$0")/health-check.sh"
 request=$(cat)
 now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 mode=$(printf '%s' "$request" | tr '\n' ' ' | sed -n 's/.*"mode"[[:space:]]*:[[:space:]]*"\([^" ]*\)".*/\1/p')
 case "$mode" in
-    metadata) printf '%s\n' '{"protocol":1,"id":"node","name":"Node","description":"Checks Node installations","tool":"node","source_url":"https://nodejs.org/en/download","runtime":"shell","capabilities":["current","refresh"]}'; exit 0 ;;
+    metadata) printf '%s\n' '{"protocol":2,"id":"node","name":"Node","description":"Checks Node installations","tool":"node","source_url":"https://nodejs.org/en/download","runtime":"shell","capabilities":["current","refresh","health"]}'; exit 0 ;;
+  health) check_now_health "$id" "$cmd" CHECK_NOW_NODE_RELEASE_URL CHECK_NOW_NODE_TARGET "$now"; exit 0 ;;
   current)
     if ! command -v "$cmd" >/dev/null 2>&1; then
-      printf '{"protocol":1,"id":"%s","status":"not_installed","tool":"%s","checked_at":"%s"}\n' "$id" "$name" "$now"
+      printf '{"protocol":2,"id":"%s","status":"not_installed","tool":"%s","checked_at":"%s"}\n' "$id" "$name" "$now"
     else
       v=$($cmd --version 2>/dev/null | head -n 1 | sed 's/[^0-9]*\([0-9][0-9.]*\).*/\1/' || true)
-      if [ -n "$v" ]; then printf '{"protocol":1,"id":"%s","status":"up_to_date","tool":"%s","installation_kind":"runtime","current_version":"%s","checked_at":"%s"}\n' "$id" "$name" "$v" "$now"; else printf '{"protocol":1,"id":"%s","status":"unknown","tool":"%s","checked_at":"%s"}\n' "$id" "$name" "$now"; fi
+      if [ -n "$v" ]; then printf '{"protocol":2,"id":"%s","status":"up_to_date","tool":"%s","installation_kind":"runtime","current_version":"%s","checked_at":"%s"}\n' "$id" "$name" "$v" "$now"; else printf '{"protocol":2,"id":"%s","status":"unknown","tool":"%s","checked_at":"%s"}\n' "$id" "$name" "$now"; fi
     fi
     exit 0 ;;
   refresh) ;;
   *) echo 'invalid request mode' >&2; exit 2 ;;
 esac
 if ! command -v "$cmd" >/dev/null 2>&1; then
-  printf '{"protocol":1,"id":"%s","status":"not_installed","tool":"%s","checked_at":"%s","explanation":"Command not found"}\n' "$id" "$name" "$now"
+  printf '{"protocol":2,"id":"%s","status":"not_installed","tool":"%s","checked_at":"%s","explanation":"Command not found"}\n' "$id" "$name" "$now"
   exit 0
 fi
 version=$($cmd --version 2>/dev/null | head -n 1 | sed 's/[^0-9]*\([0-9][0-9.]*\).*/\1/' || true)
@@ -49,7 +51,7 @@ case "$latest_target" in ''|*[!0-9.]*|.*|*..*|*.) latest_target= ;; esac
 case "$same_target" in ''|*[!0-9.]*|.*|*..*|*.) same_target= ;; esac
 is_newer() { awk -v current="$1" -v target="$2" 'BEGIN { split(current,c,"."); split(target,t,"."); for (i=1; i<=3; i++) { if ((t[i]+0) > (c[i]+0)) exit 0; if ((t[i]+0) < (c[i]+0)) exit 1 } exit 1 }'; }
 if [ -z "$version" ] || [ -z "$latest_target" ]; then
-  printf '{"protocol":1,"id":"%s","status":"unknown","tool":"%s","checked_at":"%s","source_url":"%s","explanation":"Could not determine installed or latest release version"}\n' "$id" "$name" "$now" "$source"
+  printf '{"protocol":2,"id":"%s","status":"unknown","tool":"%s","checked_at":"%s","source_url":"%s","explanation":"Could not determine installed or latest release version"}\n' "$id" "$name" "$now" "$source"
   exit 0
 fi
 updates_json=
@@ -66,7 +68,7 @@ append_update latest latest "$latest_target"
 if [ -n "$updates_json" ]; then
   status=unknown; explanation=',"explanation":"A newer official release exists, but the installation manager is not proven"'; manager_field=
   if [ "$manager" = fnm ] || [ "$manager" = nvm ]; then status=update_available; explanation=; manager_field=',"manager":"'"$manager"'"'; fi
-  printf '{"protocol":1,"id":"%s","status":"%s","tool":"%s","installation_kind":"runtime"%s,"current_version":"%s","target_version":"%s","updates":[%s],"checked_at":"%s","source_url":"%s"%s}\n' "$id" "$status" "$name" "$manager_field" "$version" "$latest_target" "$updates_json" "$now" "$source" "$explanation"
+  printf '{"protocol":2,"id":"%s","status":"%s","tool":"%s","installation_kind":"runtime"%s,"current_version":"%s","target_version":"%s","updates":[%s],"checked_at":"%s","source_url":"%s"%s}\n' "$id" "$status" "$name" "$manager_field" "$version" "$latest_target" "$updates_json" "$now" "$source" "$explanation"
 else
-  printf '{"protocol":1,"id":"%s","status":"up_to_date","tool":"%s","installation_kind":"runtime","current_version":"%s","checked_at":"%s","source_url":"%s"}\n' "$id" "$name" "$version" "$now" "$source"
+  printf '{"protocol":2,"id":"%s","status":"up_to_date","tool":"%s","installation_kind":"runtime","current_version":"%s","checked_at":"%s","source_url":"%s"}\n' "$id" "$name" "$version" "$now" "$source"
 fi

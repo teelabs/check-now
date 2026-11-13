@@ -37,6 +37,9 @@ func Create(root string, o Options) (string, error) {
 	if !has(o.Capabilities, "refresh") {
 		o.Capabilities = append(o.Capabilities, "refresh")
 	}
+	if !has(o.Capabilities, protocol.ModeHealth) {
+		o.Capabilities = append(o.Capabilities, protocol.ModeHealth)
+	}
 	dir := filepath.Join(root, o.ID)
 	if _, err := os.Stat(dir); err == nil {
 		if !o.Force {
@@ -51,14 +54,16 @@ func Create(root string, o Options) (string, error) {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return "", err
 	}
-	m := protocol.Metadata{Protocol: 1, ID: o.ID, Name: o.Name, Description: o.Description, Tool: o.Tool, SourceURL: o.SourceURL, Runtime: o.Runtime, Manager: o.Manager, Capabilities: o.Capabilities}
+	m := protocol.Metadata{Protocol: protocol.Version, ID: o.ID, Name: o.Name, Description: o.Description, Tool: o.Tool, SourceURL: o.SourceURL, Runtime: o.Runtime, Manager: o.Manager, Capabilities: o.Capabilities}
 	mb, _ := json.Marshal(m)
-	unknown := `{"protocol":1,"id":` + quote(o.ID) + `,"status":"unknown","tool":` + quote(o.Name) + `,"explanation":"TODO: implement detection and target lookup","checked_at":"`
+	unknown := `{"protocol":2,"id":` + quote(o.ID) + `,"status":"unknown","tool":` + quote(o.Name) + `,"explanation":"TODO: implement detection and target lookup","checked_at":"`
+	health := `{"protocol":2,"id":` + quote(o.ID) + `,"checked_at":"`
+	healthSuffix := `","checks":[{"code":"implementation.todo","status":"warning","summary":"TODO: implement local health checks.","repair":"Add offline checks for local configuration and installation state."}]}`
 	suffix := `"}`
-	plugin := "#!/bin/sh\nset -u\nrequest=$(cat)\nnow=$(date -u +%Y-%m-%dT%H:%M:%SZ)\nmode=$(printf '%s' \"$request\" | tr '\\n' ' ' | sed -n 's/.*\"mode\"[[:space:]]*:[[:space:]]*\"\\([^\" ]*\\)\".*/\\1/p')\ncase \"$mode\" in\n  metadata) printf '%s\\n' " + shellQuote(string(mb)) + " ;;\n  current) printf '%s\\n' " + shellQuote(unknown) + "\"$now\"" + shellQuote(suffix) + " ;;\n  refresh) printf '%s\\n' " + shellQuote(unknown) + "\"$now\"" + shellQuote(suffix) + " ;;\n  *) echo 'invalid request mode' >&2; exit 2 ;;\nesac\n"
-	readme := fmt.Sprintf("# %s\n\nGenerated plugin ID: `%s`.\n\n%s\n\nCapabilities: %s\n\nTODO: implement installation detection, target lookup, comparison, and manager-safe argv. Optional fields may be blank. stdout is reserved for one JSON response; diagnostics belong on stderr.\n", o.Name, o.ID, o.Description, strings.Join(o.Capabilities, ", "))
-	agents := "# AI-assisted implementation guidance\n\nImplement current as a local-only probe and refresh as target discovery. Keep stdout protocol-pure, use offline fixtures, return unknown when authority is unclear, and never execute argv.\n"
-	test := fmt.Sprintf("#!/bin/sh\nset -eu\nroot=$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\nmeta=$(printf '{\"protocol\":1,\"id\":\"%s\",\"mode\":\"metadata\"}\\n' | \"$root/plugin.sh\")\nprintf '%%s\\n' \"$meta\" | grep -F 'current' >/dev/null\nprintf '{\"protocol\":1,\"id\":\"%s\",\"mode\":\"current\"}\\n' | \"$root/plugin.sh\" >/dev/null\nprintf '{\"protocol\":1,\"id\":\"%s\",\"mode\":\"refresh\"}\\n' | \"$root/plugin.sh\" >/dev/null\n", o.ID, o.ID, o.ID)
+	plugin := "#!/bin/sh\nset -u\nrequest=$(cat)\nnow=$(date -u +%Y-%m-%dT%H:%M:%SZ)\nmode=$(printf '%s' \"$request\" | tr '\\n' ' ' | sed -n 's/.*\"mode\"[[:space:]]*:[[:space:]]*\"\\([^\" ]*\\)\".*/\\1/p')\ncase \"$mode\" in\n  metadata) printf '%s\\n' " + shellQuote(string(mb)) + " ;;\n  current) printf '%s\\n' " + shellQuote(unknown) + "\"$now\"" + shellQuote(suffix) + " ;;\n  refresh) printf '%s\\n' " + shellQuote(unknown) + "\"$now\"" + shellQuote(suffix) + " ;;\n  health) printf '%s\\n' " + shellQuote(health) + "\"$now\"" + shellQuote(healthSuffix) + " ;;\n  *) echo 'invalid request mode' >&2; exit 2 ;;\nesac\n"
+	readme := fmt.Sprintf("# %s\n\nGenerated plugin ID: `%s`.\n\n%s\n\nCapabilities: %s\n\nImplement `health` as an offline check of local configuration and installation state. Do not contact update sources or print environment values. `current` is local-only; `refresh` discovers targets. Optional fields may be blank. stdout is reserved for one JSON response; diagnostics belong on stderr.\n", o.Name, o.ID, o.Description, strings.Join(o.Capabilities, ", "))
+	agents := "# AI-assisted implementation guidance\n\nImplement health as offline checks that do not contact update sources or include environment values in summaries. Implement current as a local-only probe and refresh as target discovery. Keep stdout protocol-pure, use offline fixtures, return unknown when authority is unclear, and never execute argv.\n"
+	test := fmt.Sprintf("#!/bin/sh\nset -eu\nroot=$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\nmeta=$(printf '{\"protocol\":2,\"id\":\"%s\",\"mode\":\"metadata\"}\\n' | \"$root/plugin.sh\")\nprintf '%%s\\n' \"$meta\" | grep -F 'health' >/dev/null\nprintf '{\"protocol\":2,\"id\":\"%s\",\"mode\":\"current\"}\\n' | \"$root/plugin.sh\" >/dev/null\nprintf '{\"protocol\":2,\"id\":\"%s\",\"mode\":\"refresh\"}\\n' | \"$root/plugin.sh\" >/dev/null\nprintf '{\"protocol\":2,\"id\":\"%s\",\"mode\":\"health\"}\\n' | \"$root/plugin.sh\" | grep -F 'checks' >/dev/null\n", o.ID, o.ID, o.ID, o.ID)
 	files := []struct {
 		name, body string
 		mode       os.FileMode

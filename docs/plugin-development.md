@@ -1,16 +1,16 @@
 # Plugin development
 
-Create an offline-safe plugin with `check-now plugin create <id>`. Required fields are ID, display name, and one-sentence description. Optional command, source URL, and manager fields can be left blank. Runtime defaults to `shell`; capabilities default to `current,refresh`.
+Create an offline-safe protocol v2 plugin with `check-now plugin create <id>`. Required fields are ID, display name, and one-sentence description. Optional command, source URL, and manager fields can be left blank. Runtime defaults to `shell`; capabilities default to `current,refresh,health`.
 
 Non-interactive example:
 
 ```sh
-check-now plugin create nodejs --name 'Node.js' --description 'Checks Node.js installations' --tool node --source-url https://nodejs.org --runtime shell --manager fnm --capability current,refresh --non-interactive
+check-now plugin create nodejs --name 'Node.js' --description 'Checks Node.js installations' --tool node --source-url https://nodejs.org --runtime shell --manager fnm --capability current,refresh,health --non-interactive
 ```
 
 The command creates `plugin.sh`, `README.md`, `AGENTS.md`, and executable `test.sh` under `plugins/<id>`. Existing folders require `--force`.
 
-The generated `plugin.sh` is intentionally conservative and self-contained. Implement detection, installed-version lookup, release comparison, manager identification, and safe update arguments in that file. Do not add a helper executable that the host must know about. The host discovers the folder and speaks only the protocol.
+The generated `plugin.sh` is intentionally conservative and self-contained. Implement offline `health` checks for local configuration, then detection, installed-version lookup, release comparison, manager identification, and safe update arguments. Health must not contact update sources or print environment values. The host discovers the folder and speaks only the protocol.
 
 For an interactive shell, the normal development loop is:
 

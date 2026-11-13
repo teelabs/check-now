@@ -13,7 +13,7 @@ _check-now() {
     dismiss) (( CURRENT == 3 )) && _describe 'plugin' plugins ;;
     plugin)
       if [[ $words[3] == create ]]; then
-        _arguments '1:plugin id:' $flags '--runtime=[runtime]:runtime:(shell)' '--capability=[capabilities]:capability:(current refresh)'
+        _arguments '1:plugin id:' $flags '--runtime=[runtime]:runtime:(shell)' '--capability=[capabilities]:capability:(current refresh health)'
       fi ;;
   esac
 }

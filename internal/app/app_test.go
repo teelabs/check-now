@@ -16,7 +16,7 @@ func TestRefreshPreservesPreviousCacheWhenPluginReturnsUnknown(t *testing.T) {
 	root := t.TempDir()
 	pluginDir := filepath.Join(root, "tool")
 	plugin := filepath.Join(pluginDir, "plugin.sh")
-	body := "#!/bin/sh\ncat >/dev/null\nprintf '%s\\n' '{\"protocol\":1,\"id\":\"tool\",\"tool\":\"Tool\",\"status\":\"unknown\",\"checked_at\":\"2026-01-01T00:00:00Z\"}'\n"
+	body := "#!/bin/sh\ncat >/dev/null\nprintf '%s\\n' '{\"protocol\":2,\"id\":\"tool\",\"tool\":\"Tool\",\"status\":\"unknown\",\"checked_at\":\"2026-01-01T00:00:00Z\"}'\n"
 	if err := os.MkdirAll(pluginDir, 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -25,7 +25,7 @@ func TestRefreshPreservesPreviousCacheWhenPluginReturnsUnknown(t *testing.T) {
 	}
 	cacheDir := filepath.Join(root, "cache")
 	store := cache.New(cacheDir, time.Hour)
-	if err := store.Write(protocol.Result{Protocol: 1, ID: "tool", Tool: "Tool", Status: "up_to_date", CheckedAt: time.Now().UTC().Format(time.RFC3339)}); err != nil {
+	if err := store.Write(protocol.Result{Protocol: protocol.Version, ID: "tool", Tool: "Tool", Status: "up_to_date", CheckedAt: time.Now().UTC().Format(time.RFC3339)}); err != nil {
 		t.Fatal(err)
 	}
 	if err := (New([]string{plugin}, cacheDir, time.Hour, time.Second)).Refresh(context.Background(), true); err != nil {
@@ -34,6 +34,114 @@ func TestRefreshPreservesPreviousCacheWhenPluginReturnsUnknown(t *testing.T) {
 	got, ok := store.ReadAny("tool")
 	if !ok || got.Status != "up_to_date" {
 		t.Fatalf("cache=%+v ok=%v", got, ok)
+	}
+}
+
+func TestRefreshFailurePreservesTargetAndStoresOnlyBoundedOutcome(t *testing.T) {
+	root := t.TempDir()
+	plugin := filepath.Join(root, "tool", "plugin.sh")
+	if err := os.MkdirAll(filepath.Dir(plugin), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(plugin, []byte("#!/bin/sh\necho 'private plugin diagnostic' >&2\nexit 1\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	store := cache.New(filepath.Join(root, "cache"), time.Hour)
+	prior := protocol.Result{Protocol: protocol.Version, ID: "tool", Tool: "Tool", Status: "update_available", TargetVersion: "2.0.0", CheckedAt: time.Now().UTC().Format(time.RFC3339)}
+	if err := store.WriteTarget(prior); err != nil {
+		t.Fatal(err)
+	}
+	if err := New([]string{plugin}, store.Dir, time.Hour, time.Second).Refresh(context.Background(), true); err == nil {
+		t.Fatal("expected refresh failure")
+	}
+	got, ok := store.ReadTarget("tool")
+	if !ok || got.TargetVersion != prior.TargetVersion {
+		t.Fatalf("target=%+v ok=%v", got, ok)
+	}
+	history, ok := store.ReadRefresh("tool")
+	if !ok || history.Outcome != "process_failure" || history.CheckedAt == "" {
+		t.Fatalf("history=%+v ok=%v", history, ok)
+	}
+	data, err := os.ReadFile(store.RefreshPath("tool"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "private plugin diagnostic") {
+		t.Fatalf("raw stderr persisted in refresh history: %s", data)
+	}
+}
+
+func TestRefreshRecordsTimeoutAndProtocolFailureWhilePreservingTarget(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		body    string
+		timeout time.Duration
+		outcome string
+	}{
+		{"timeout", "cat >/dev/null\nsleep 1\n", 10 * time.Millisecond, "timeout"},
+		{"protocol failure", "cat >/dev/null\nprintf '%s\\n' '{not-json}'\n", time.Second, "protocol_failure"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			plugin := filepath.Join(root, "tool", "plugin.sh")
+			if err := os.MkdirAll(filepath.Dir(plugin), 0755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(plugin, []byte("#!/bin/sh\n"+tc.body), 0755); err != nil {
+				t.Fatal(err)
+			}
+			store := cache.New(filepath.Join(root, "cache"), time.Hour)
+			prior := protocol.Result{Protocol: protocol.Version, ID: "tool", Tool: "Tool", Status: "update_available", TargetVersion: "2.0.0", CheckedAt: time.Now().UTC().Format(time.RFC3339)}
+			if err := store.WriteTarget(prior); err != nil {
+				t.Fatal(err)
+			}
+			if err := New([]string{plugin}, store.Dir, time.Hour, tc.timeout).Refresh(context.Background(), true); err == nil {
+				t.Fatal("expected refresh failure")
+			}
+			got, ok := store.ReadTarget("tool")
+			if !ok || got.TargetVersion != prior.TargetVersion {
+				t.Fatalf("target=%+v ok=%v", got, ok)
+			}
+			history, ok := store.ReadRefresh("tool")
+			if !ok || history.Outcome != tc.outcome {
+				t.Fatalf("history=%+v ok=%v; want outcome %s", history, ok, tc.outcome)
+			}
+		})
+	}
+}
+
+func TestRefreshRecordsCacheFailureWithoutReplacingLegacyTarget(t *testing.T) {
+	root := t.TempDir()
+	plugin := filepath.Join(root, "tool", "plugin.sh")
+	if err := os.MkdirAll(filepath.Dir(plugin), 0755); err != nil {
+		t.Fatal(err)
+	}
+	body := "#!/bin/sh\ncat >/dev/null\nprintf '%s\\n' '{\"protocol\":2,\"id\":\"tool\",\"tool\":\"Tool\",\"status\":\"up_to_date\",\"checked_at\":\"2026-01-01T00:00:00Z\"}'\n"
+	if err := os.WriteFile(plugin, []byte(body), 0755); err != nil {
+		t.Fatal(err)
+	}
+	cacheDir := filepath.Join(root, "cache")
+	store := cache.New(cacheDir, time.Hour)
+	if err := os.MkdirAll(cacheDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cacheDir, "targets"), []byte("block target directory"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	prior := `{"protocol":2,"id":"tool","tool":"Tool","status":"update_available","target_version":"2.0.0","checked_at":"2026-01-01T00:00:00Z"}`
+	if err := os.WriteFile(store.Path("tool"), []byte(prior), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := New([]string{plugin}, cacheDir, time.Hour, time.Second).Refresh(context.Background(), true); err == nil {
+		t.Fatal("expected cache write failure")
+	}
+	got, ok := store.ReadTarget("tool")
+	if !ok || got.TargetVersion != "2.0.0" {
+		t.Fatalf("target=%+v ok=%v; last-known-good target was lost", got, ok)
+	}
+	history, ok := store.ReadRefresh("tool")
+	if !ok || history.Outcome != "cache_failure" {
+		t.Fatalf("history=%+v ok=%v; want cache_failure", history, ok)
 	}
 }
 
@@ -68,10 +176,10 @@ func TestFormatUpdatesSeparatesUtilityGroups(t *testing.T) {
 }
 
 func TestCombineCurrentHidesReachedSameMajorAndKeepsLatestMajor(t *testing.T) {
-	target := protocol.Result{Protocol: 1, ID: "node", Tool: "Node", Status: "update_available", Updates: []protocol.Update{
+	target := protocol.Result{Protocol: protocol.Version, ID: "node", Tool: "Node", Status: "update_available", Updates: []protocol.Update{
 		{Scope: "same_major", Track: "24.x", Version: "24.20.0"}, {Scope: "latest", Track: "latest", Version: "26.0.0"},
 	}}
-	combined := combineCurrent(target, protocol.Result{Protocol: 1, ID: "node", Tool: "Node", Status: "up_to_date", CurrentVersion: "24.20.0"})
+	combined := combineCurrent(target, protocol.Result{Protocol: protocol.Version, ID: "node", Tool: "Node", Status: "up_to_date", CurrentVersion: "24.20.0"})
 	if len(combined.Updates) != 1 || combined.Updates[0].Scope != "latest" || combined.CurrentVersion != "24.20.0" {
 		t.Fatalf("combined=%+v", combined)
 	}
@@ -84,11 +192,11 @@ func TestDismissStoresTargetFingerprint(t *testing.T) {
 	if err := os.MkdirAll(pluginDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(plugin, []byte("#!/bin/sh\nprintf '%s\\n' '{\"protocol\":1,\"id\":\"tool\",\"tool\":\"Tool\",\"status\":\"unknown\",\"target_version\":\"2.0.0\",\"checked_at\":\"2026-01-01T00:00:00Z\"}'\n"), 0755); err != nil {
+	if err := os.WriteFile(plugin, []byte("#!/bin/sh\nprintf '%s\\n' '{\"protocol\":2,\"id\":\"tool\",\"tool\":\"Tool\",\"status\":\"unknown\",\"target_version\":\"2.0.0\",\"checked_at\":\"2026-01-01T00:00:00Z\"}'\n"), 0755); err != nil {
 		t.Fatal(err)
 	}
 	store := cache.New(filepath.Join(root, "cache"), time.Hour)
-	target := protocol.Result{Protocol: 1, ID: "tool", Tool: "Tool", Status: "unknown", TargetVersion: "2.0.0", CheckedAt: time.Now().UTC().Format(time.RFC3339)}
+	target := protocol.Result{Protocol: protocol.Version, ID: "tool", Tool: "Tool", Status: "unknown", TargetVersion: "2.0.0", CheckedAt: time.Now().UTC().Format(time.RFC3339)}
 	if err := store.WriteTarget(target); err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +213,7 @@ func TestRefreshOmitsPriorWhenTargetCacheIsMissing(t *testing.T) {
 	root := t.TempDir()
 	pluginDir := filepath.Join(root, "tool")
 	plugin := filepath.Join(pluginDir, "plugin.sh")
-	body := "#!/bin/sh\nrequest=$(cat)\ncase \"$request\" in *'\\\"prior\\\"'*) exit 3 ;; esac\nprintf '%s\\n' '{\"protocol\":1,\"id\":\"tool\",\"tool\":\"Tool\",\"status\":\"up_to_date\",\"checked_at\":\"2026-01-01T00:00:00Z\"}'\n"
+	body := "#!/bin/sh\nrequest=$(cat)\ncase \"$request\" in *'\\\"prior\\\"'*) exit 3 ;; esac\nprintf '%s\\n' '{\"protocol\":2,\"id\":\"tool\",\"tool\":\"Tool\",\"status\":\"up_to_date\",\"checked_at\":\"2026-01-01T00:00:00Z\"}'\n"
 	if err := os.MkdirAll(pluginDir, 0755); err != nil {
 		t.Fatal(err)
 	}

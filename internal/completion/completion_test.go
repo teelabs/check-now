@@ -73,3 +73,15 @@ func TestZshScriptDeclaresCommandForCompinit(t *testing.T) {
 		t.Fatal("zsh completion must declare check-now for compinit to register it")
 	}
 }
+
+func TestPluginCapabilityCompletionsIncludeHealth(t *testing.T) {
+	for _, shell := range []string{"bash", "zsh"} {
+		got, err := Script(shell)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(got, "current refresh health") {
+			t.Errorf("%s plugin capability completion omits health", shell)
+		}
+	}
+}

@@ -7,6 +7,9 @@ trap 'rm -rf "$fake"' EXIT HUP INT TERM
 
 cat >"$fake/curl" <<'EOF'
 #!/bin/sh
+if [ -n "${CHECK_NOW_HEALTH_CURL_MARKER:-}" ]; then
+  printf '%s\n' called >>"$CHECK_NOW_HEALTH_CURL_MARKER"
+fi
 url=
 for arg in "$@"; do case "$arg" in http://*|https://*) url=$arg ;; esac; done
 case "$url" in
@@ -35,36 +38,61 @@ chmod 700 "$fake/fake-tool"
 for id in node bun deno fnm codex claude; do ln -s fake-tool "$fake/$id"; done
 
 for id in node bun deno fnm codex claude; do
+  metadata=$(PATH="$fake:$PATH" "$root/$id/plugin.sh" <<EOF
+{"protocol":2,"id":"$id","mode":"metadata"}
+EOF
+)
+  case "$metadata" in *'"capabilities"'*'"health"'*) ;; *) echo "$id did not advertise health: $metadata" >&2; exit 1 ;; esac
   current=$(PATH="$fake:$PATH" "$root/$id/plugin.sh" <<EOF
-{"protocol":1,"id":"$id","mode":"current"}
+{"protocol":2,"id":"$id","mode":"current"}
 EOF
 )
   case "$current" in *'"status":"up_to_date"'*) ;; *) echo "$id current probe failed: $current" >&2; exit 1 ;; esac
   output=$(PATH="$fake:$PATH" "$root/$id/plugin.sh" <<EOF
-{"protocol":1,"id":"$id","mode":"refresh"}
+{"protocol":2,"id":"$id","mode":"refresh"}
 EOF
 )
   case "$id:$output" in node:*'"status":"update_available"'*) ;; bun:*'"status":"unknown"'*|deno:*'"status":"unknown"'*|fnm:*'"status":"unknown"'*|codex:*'"status":"unknown"'*|claude:*'"status":"unknown"'*) ;; *) echo "$id did not conservatively classify the fixture release: $output" >&2; exit 1 ;; esac
   case "$output" in *'"target_version"'*) ;; *) echo "$id omitted target_version: $output" >&2; exit 1 ;; esac
+  health=$(CHECK_NOW_HEALTH_CURL_MARKER="$fake/health-curl-called" PATH="$fake:$PATH" "$root/$id/plugin.sh" <<EOF
+{"protocol":2,"id":"$id","mode":"health"}
+EOF
+)
+  case "$health" in *'"checks"'*'"code":"command.available"'*'"code":"config.release_url"'*'"code":"config.target"'*) ;; *) echo "$id health checks missing: $health" >&2; exit 1 ;; esac
 done
+if [ -e "$fake/health-curl-called" ]; then echo 'a built-in health check contacted curl' >&2; exit 1; fi
 
-pretty=$(printf '%s\n' '{ "mode": "metadata", "id": "bun", "protocol": 1 }' | PATH="$fake:$PATH" "$root/bun/plugin.sh")
+invalid_health=$(CHECK_NOW_BUN_RELEASE_URL=http://insecure.invalid CHECK_NOW_BUN_TARGET='2.0.0' PATH="$fake:$PATH" "$root/bun/plugin.sh" <<EOF
+{"protocol":2,"id":"bun","mode":"health"}
+EOF
+)
+case "$invalid_health" in *'"status":"error"'*'"status":"warning"'*) ;; *) echo "bad override health result: $invalid_health" >&2; exit 1 ;; esac
+case "$invalid_health" in *'insecure.invalid'*|*'2.0.0'*) echo "health output exposed configuration values: $invalid_health" >&2; exit 1 ;; esac
+
+pretty=$(printf '%s\n' '{ "mode": "metadata", "id": "bun", "protocol": 2 }' | PATH="$fake:$PATH" "$root/bun/plugin.sh")
 case "$pretty" in *'"name":"Bun"'*) ;; *) echo "pretty metadata request misclassified: $pretty" >&2; exit 1 ;; esac
 
 offline=$(CHECK_NOW_BUN_RELEASE_URL=/not-found PATH="$fake:$PATH" "$root/bun/plugin.sh" <<EOF
-{"protocol":1,"id":"bun","mode":"refresh"}
+{"protocol":2,"id":"bun","mode":"refresh"}
 EOF
 )
 case "$offline" in *'"status":"unknown"'*) ;; *) echo "offline release lookup was not unknown: $offline" >&2; exit 1 ;; esac
 
 unsafe=$(CHECK_NOW_BUN_TARGET='1.2"x' PATH="$fake:$PATH" "$root/bun/plugin.sh" <<EOF
-{"protocol":1,"id":"bun","mode":"refresh"}
+{"protocol":2,"id":"bun","mode":"refresh"}
 EOF
 )
 case "$unsafe" in *'1.2"x'*) echo "unsafe target escaped into protocol: $unsafe" >&2; exit 1 ;; esac
 case "$unsafe" in *'"status":"unknown"'*) ;; *) echo "unsafe target was not rejected: $unsafe" >&2; exit 1 ;; esac
 
-node_output=$(printf '%s\n' '{"protocol":1,"id":"node","mode":"refresh"}' | PATH="$fake:$PATH" "$root/node/plugin.sh")
+unsafe_health=$(CHECK_NOW_BUN_TARGET='1.2"x' PATH="$fake:$PATH" "$root/bun/plugin.sh" <<EOF
+{"protocol":2,"id":"bun","mode":"health"}
+EOF
+)
+case "$unsafe_health" in *'"code":"config.target","status":"error"'*) ;; *) echo "unsafe target health check was not an error: $unsafe_health" >&2; exit 1 ;; esac
+case "$unsafe_health" in *'1.2"x'*) echo "health check exposed unsafe target: $unsafe_health" >&2; exit 1 ;; esac
+
+node_output=$(printf '%s\n' '{"protocol":2,"id":"node","mode":"refresh"}' | PATH="$fake:$PATH" "$root/node/plugin.sh")
 printf '%s\n' "$node_output" | grep -F '"manager":"fnm"' | grep -F '"version":"24.20.0"' | grep -F '"version":"25.0.0"' | grep -F '"argv":["fnm","install","24.20.0"]' >/dev/null || { echo "bad fnm-backed node result: $node_output" >&2; exit 1; }
 
 nvm_dir="$fake/nvm"
@@ -76,7 +104,7 @@ ln -s "$fake/curl" "$fake/nvm-bin/curl"
 cat >"$nvm_dir/nvm.sh" <<'EOF'
 nvm() { case "$1" in ls-remote) printf '%s\nv24.20.0\nv26.0.0\n' ;; *) : ;; esac; }
 EOF
-nvm_output=$(printf '%s\n' '{ "protocol": 1, "id": "node", "mode": "refresh" }' | PATH="$nvm_dir/versions/node/v24.0.0/bin:$fake/nvm-bin:$PATH" NVM_DIR="$nvm_dir" "$root/node/plugin.sh")
+nvm_output=$(printf '%s\n' '{ "protocol": 2, "id": "node", "mode": "refresh" }' | PATH="$nvm_dir/versions/node/v24.0.0/bin:$fake/nvm-bin:$PATH" NVM_DIR="$nvm_dir" "$root/node/plugin.sh")
 printf '%s\n' "$nvm_output" | grep -F '"manager":"nvm"' | grep -F '"version":"24.20.0"' | grep -F '"version":"26.0.0"' | grep -F '"argv":["nvm","install","24.20.0"]' >/dev/null || { echo "bad nvm-backed node result: $nvm_output" >&2; exit 1; }
 
 managed_home="$fake/home"
@@ -90,13 +118,13 @@ ln -s "$managed_home/.local/share/claude/versions/2.1.310/claude" "$managed_home
 ln -s "$managed_home/.codex/packages/standalone/releases/0.163.0-x86_64-unknown-linux-musl/bin/codex" "$managed_home/bin/codex"
 
 claude_managed=$(HOME="$managed_home" PATH="$managed_home/bin:$fake:$PATH" CHECK_NOW_CLAUDE_TARGET=2.1.311 "$root/claude/plugin.sh" <<EOF
-{"protocol":1,"id":"claude","mode":"refresh"}
+{"protocol":2,"id":"claude","mode":"refresh"}
 EOF
 )
 printf '%s\n' "$claude_managed" | grep -F '"status":"update_available"' | grep -F '"manager":"claude-native"' | grep -F '"argv":["claude","update"]' >/dev/null || { echo "bad native Claude result: $claude_managed" >&2; exit 1; }
 
 codex_managed=$(HOME="$managed_home" PATH="$managed_home/bin:$fake:$PATH" CHECK_NOW_CODEX_TARGET=0.200.0 "$root/codex/plugin.sh" <<EOF
-{"protocol":1,"id":"codex","mode":"refresh"}
+{"protocol":2,"id":"codex","mode":"refresh"}
 EOF
 )
 printf '%s\n' "$codex_managed" | grep -F '"status":"update_available"' | grep -F '"manager":"codex-standalone"' | grep -F '"argv":["sh","-c","curl -fsSL https://chatgpt.com/codex/install.sh | sh"]' >/dev/null || { echo "bad standalone Codex result: $codex_managed" >&2; exit 1; }
