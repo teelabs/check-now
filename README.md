@@ -55,7 +55,7 @@ curl -fsSL https://check-now.pages.dev/install.sh | sh
 Install or upgrade a pinned version and choose another prefix:
 
 ```sh
-curl -fsSL https://check-now.pages.dev/install.sh | sh -s -- --version 0.3.1 --prefix "$HOME/.local"
+curl -fsSL https://check-now.pages.dev/install.sh | sh -s -- --version 0.3.0 --prefix "$HOME/.local"
 ```
 
 Shell integration remains opt-in. Add `--shell-hook` for the detected shell, or `--shell bash --shell-hook --shell-completion` to configure Bash explicitly. The installer supports hook setup for Bash, Zsh, Fish, Ksh, and Dash, with completion for Bash, Zsh, and Fish. Add the chosen prefix's `bin` directory (by default, `~/.local/bin`) to `PATH` if it is not already present.
