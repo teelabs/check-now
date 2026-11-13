@@ -57,7 +57,7 @@ curl -fsSL https://check-now.pages.dev/install.sh | sh
 Install or upgrade a pinned version and choose another prefix:
 
 ```sh
-curl -fsSL https://check-now.pages.dev/install.sh | sh -s -- --version 0.3.1 --prefix "$HOME/.local"
+curl -fsSL https://check-now.pages.dev/install.sh | sh -s -- --version 0.3.2 --prefix "$HOME/.local"
 ```
 
 Shell integration remains opt-in. The installer discovers a startup-file candidate for the selected shell and asks you to confirm it before editing. Zsh resolution uses Zsh startup configuration, including a custom `ZDOTDIR`; Bash, Fish, Ksh, and Dash use their shell-specific configuration paths and environment settings. The source installer also resolves PowerShell's `$PROFILE`. Answer `n` to enter another path. For unattended installs, pass `--rc-file PATH`; the supplied path is treated as your selection. If no path is confirmed, the binary is installed without hooks or completions, and the installer explains how to rerun setup.
