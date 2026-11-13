@@ -4,8 +4,11 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-12
+
 ### Added
 
+- Standalone Linux amd64 and arm64 release bundles with SHA-256 checksums, a checksum-verifying Pages installer, and a version command.
 - Proven update guidance for native and npm-managed Claude Code installations and standalone, npm, and Homebrew Codex CLI installations.
 
 ### Fixed
