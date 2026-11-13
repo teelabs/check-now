@@ -44,6 +44,30 @@ Install and activate native completion alongside the update-check hook:
 ./install.sh --install --shell-hook --shell-completion
 ```
 
+### Install a prebuilt release
+
+Linux amd64 and arm64 releases are available without Go. The remote installer downloads the matching GitHub Release archive and verifies its SHA-256 checksum before replacing an existing installation. It needs a POSIX shell, `curl` or `wget`, `tar`, `sha256sum`, and common POSIX utilities. It does not require Go, Python, Cosign, or a package manager.
+
+```sh
+curl -fsSL https://check-now.pages.dev/install.sh | sh
+```
+
+Install or upgrade a pinned version and choose another prefix:
+
+```sh
+curl -fsSL https://check-now.pages.dev/install.sh | sh -s -- --version 0.2.0 --prefix "$HOME/.local"
+```
+
+Shell integration remains opt-in. Add `--shell-hook` for the detected shell, or `--shell bash --shell-hook --shell-completion` to configure Bash explicitly. The installer supports hook setup for Bash, Zsh, Fish, Ksh, and Dash, with completion for Bash, Zsh, and Fish. Add the chosen prefix's `bin` directory (by default, `~/.local/bin`) to `PATH` if it is not already present.
+
+The `check-now version` command prints the installed release version. Source builds and the local `install.sh` workflow remain available.
+
+### Release infrastructure
+
+Pushing a `vX.Y.Z` tag that matches `VERSION` builds deterministic Linux amd64 and arm64 bundles, validates their contents and SHA-256 checksums, and publishes them to GitHub Releases. The Pages deployment workflow publishes `distribution/install.sh` at `https://check-now.pages.dev/install.sh` after a release is published and smoke-checks the public URL.
+
+Configure the repository's `installer-production` environment with `CLOUDFLARE_API_TOKEN` (Pages Write) and `CLOUDFLARE_ACCOUNT_ID` before enabling release deployments. GitHub Actions creates the Pages project if needed, deploys the installer with the pinned Cloudflare Wrangler Action, and smoke-checks the public URL. No Cloudflare CLI setup is needed on a developer machine.
+
 Override detection with `--shell bash`, `--shell zsh`, `--shell fish`, `--shell ksh`, `--shell dash`, or `--shell powershell`. Completion supports Bash, Zsh, Fish, and PowerShell (`pwsh`); Ksh and Dash remain supported only for the update-check hook.
 
 ## Shell integration

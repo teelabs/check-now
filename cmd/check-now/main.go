@@ -16,6 +16,8 @@ import (
 	"time"
 )
 
+var version = "dev"
+
 func main() {
 	if len(os.Args) < 2 {
 		usage()
@@ -26,6 +28,14 @@ func main() {
 			fmt.Fprintln(os.Stderr, "check-now:", err)
 			os.Exit(2)
 		}
+		return
+	}
+	if os.Args[1] == "version" {
+		if len(os.Args) != 2 {
+			usage()
+			os.Exit(2)
+		}
+		fmt.Printf("check-now %s\n", version)
 		return
 	}
 	exe, _ := os.Executable()
@@ -191,7 +201,7 @@ func pluginRoot() string {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: check-now {shell|refresh [--force]|dismiss <plugin-id>|list|doctor|plugin create <id> [flags]|completion [bash|zsh|fish|powershell|pwsh]}")
+	fmt.Fprintln(os.Stderr, "usage: check-now {version|shell|refresh [--force]|dismiss <plugin-id>|list|doctor|plugin create <id> [flags]|completion [bash|zsh|fish|powershell|pwsh]}")
 }
 
 func completionCommand(args []string) error {

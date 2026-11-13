@@ -2,13 +2,17 @@ PREFIX ?= $(HOME)/.local
 BIN_DIR ?= $(PREFIX)/bin
 INSTALL_DIR ?= $(PREFIX)/share/check-now
 
-.PHONY: build test test-plugins install clean
+.PHONY: build release test test-plugins install clean
 
 build:
 	mkdir -p dist
 	go build -o dist/check-now ./cmd/check-now
 	rm -rf dist/plugins
 	cp -R plugins dist/plugins
+
+release:
+	./scripts/build-release.sh --out-dir dist/release
+	./scripts/verify-release.sh --dir dist/release
 
 test: test-plugins
 	go test ./...
