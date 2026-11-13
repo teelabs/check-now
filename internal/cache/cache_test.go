@@ -4,6 +4,8 @@ import (
 	"check-now/internal/protocol"
 	"os"
 	"path/filepath"
+	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -116,5 +118,63 @@ func TestRefreshHistoryRejectsUnboundedOutcomeText(t *testing.T) {
 	err := s.WriteRefresh("x", RefreshRecord{CheckedAt: time.Now().UTC().Format(time.RFC3339), Outcome: "private plugin diagnostic"})
 	if err == nil {
 		t.Fatal("unbounded refresh outcome accepted")
+	}
+}
+
+func TestInspectRejectsOversizedCacheRecords(t *testing.T) {
+	s := New(t.TempDir(), time.Hour)
+	padding := strings.Repeat("x", 2<<20)
+	records := []struct {
+		path string
+		body string
+	}{
+		{s.TargetPath("x"), `{"protocol":2,"id":"x","tool":"X","status":"unknown","checked_at":"2026-01-01T00:00:00Z","explanation":"` + padding + `"}`},
+		{s.CurrentPath("x"), `{"protocol":2,"id":"x","tool":"X","status":"unknown","checked_at":"2026-01-01T00:00:00Z","explanation":"` + padding + `"}`},
+		{s.ControlPath("x"), `{"dismissed":false,"padding":"` + padding + `"}`},
+		{s.RefreshPath("x"), `{"checked_at":"2026-01-01T00:00:00Z","outcome":"success","padding":"` + padding + `"}`},
+	}
+	for _, record := range records {
+		path := record.path
+		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(record.body), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, state := s.InspectTarget("x"); state != RecordCorrupt {
+		t.Errorf("oversized target state = %s; want corrupt", state)
+	}
+	if _, state := s.InspectCurrent("x"); state != RecordCorrupt {
+		t.Errorf("oversized current state = %s; want corrupt", state)
+	}
+	if _, state := s.InspectControl("x"); state != RecordCorrupt {
+		t.Errorf("oversized control state = %s; want corrupt", state)
+	}
+	if _, state := s.InspectRefresh("x"); state != RecordCorrupt {
+		t.Errorf("oversized refresh state = %s; want corrupt", state)
+	}
+}
+
+func TestInspectRejectsFIFOWithoutBlocking(t *testing.T) {
+	s := New(t.TempDir(), time.Hour)
+	if err := os.MkdirAll(filepath.Dir(s.TargetPath("x")), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Mkfifo(s.TargetPath("x"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan RecordState, 1)
+	go func() {
+		_, state := s.InspectTarget("x")
+		done <- state
+	}()
+	select {
+	case state := <-done:
+		if state != RecordCorrupt {
+			t.Fatalf("FIFO target state = %s; want corrupt", state)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("inspecting a FIFO cache record blocked")
 	}
 }

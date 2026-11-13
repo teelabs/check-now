@@ -16,6 +16,7 @@ All notable changes to this project are documented here.
 
 ### Fixed
 
+- Bounded cache record reads, rejected non-regular cache records, capped health checks, guarded duration overflow, and completed Bash/Zsh capability suggestions.
 - Dispatch Cloudflare Pages deployment from the validated release workflow.
 
 ## [0.2.0] - 2026-11-12

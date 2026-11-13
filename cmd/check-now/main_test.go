@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"check-now/internal/scaffold"
 )
@@ -76,6 +77,18 @@ func TestRefreshBackgroundRemainsAcceptedButPrivate(t *testing.T) {
 	}
 	if strings.Contains(renderHelp("", false), "--background") {
 		t.Fatal("internal refresh option appears in public help")
+	}
+}
+
+func TestDoctorDurationRejectsOverflowingHourCount(t *testing.T) {
+	for _, value := range []string{"6000000", "-10000000"} {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv("CHECK_NOW_STALE_INTERVAL", value)
+			got, finding := doctorDuration("CHECK_NOW_STALE_INTERVAL", time.Second)
+			if finding.Status != "error" || got != time.Second {
+				t.Fatalf("duration=%s finding=%+v; want fallback and error", got, finding)
+			}
+		})
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 )
 
 const Version = 2
+const maxHealthChecks = 64
 
 const (
 	ModeMetadata = "metadata"
@@ -175,6 +176,9 @@ func DecodeHealth(data []byte) (Health, error) {
 	}
 	if h.Protocol != Version || h.ID == "" || h.CheckedAt == "" || len(h.Checks) == 0 {
 		return h, fmt.Errorf("missing or invalid health fields")
+	}
+	if len(h.Checks) > maxHealthChecks {
+		return h, fmt.Errorf("too many health checks")
 	}
 	if _, err := time.Parse(time.RFC3339, h.CheckedAt); err != nil {
 		return h, fmt.Errorf("invalid checked_at: %w", err)

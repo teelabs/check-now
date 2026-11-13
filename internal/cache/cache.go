@@ -5,7 +5,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -17,6 +19,14 @@ type Store struct {
 	Dir   string
 	Stale time.Duration
 }
+
+// Cache writes are pretty-printed and may be larger than the adapter's 1 MiB
+// response limit, so allow headroom while keeping reads bounded.
+const maxCacheRecordSize = 2 << 20
+
+var errCacheRecordTooLarge = errors.New("cache record exceeds 2 MiB")
+var errCacheRecordNotRegular = errors.New("cache record is not a regular file")
+
 type Control struct {
 	Dismissed   bool   `json:"dismissed"`
 	Fingerprint string `json:"fingerprint,omitempty"`
@@ -45,7 +55,7 @@ func (s Store) ControlPath(id string) string    { return filepath.Join(s.Dir, "c
 func (s Store) RefreshPath(id string) string    { return filepath.Join(s.Dir, "refresh", id+".json") }
 
 func readResult(path, id string) (protocol.Result, bool) {
-	b, err := os.ReadFile(path)
+	b, err := readCacheRecord(path)
 	if err != nil {
 		return protocol.Result{}, false
 	}
@@ -85,8 +95,11 @@ func (s Store) InspectCurrent(id string) (protocol.Result, RecordState) {
 }
 
 func inspectResult(path, id string) (protocol.Result, RecordState) {
-	b, err := os.ReadFile(path)
+	b, err := readCacheRecord(path)
 	if err != nil {
+		if invalidCacheRecordError(err) {
+			return protocol.Result{}, RecordCorrupt
+		}
 		if os.IsNotExist(err) {
 			return protocol.Result{}, RecordMissing
 		}
@@ -97,6 +110,33 @@ func inspectResult(path, id string) (protocol.Result, RecordState) {
 		return protocol.Result{}, RecordCorrupt
 	}
 	return r, RecordValid
+}
+
+func readCacheRecord(path string) ([]byte, error) {
+	file, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, errCacheRecordNotRegular
+	}
+	data, err := io.ReadAll(io.LimitReader(file, maxCacheRecordSize+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxCacheRecordSize {
+		return nil, errCacheRecordTooLarge
+	}
+	return data, nil
+}
+
+func invalidCacheRecordError(err error) bool {
+	return errors.Is(err, errCacheRecordTooLarge) || errors.Is(err, errCacheRecordNotRegular)
 }
 func (s Store) ReadTargetFresh(id string) (protocol.Result, bool) {
 	r, ok := s.ReadTarget(id)
@@ -132,7 +172,7 @@ func (s Store) WriteCurrent(r protocol.Result) error { return s.write(s.CurrentP
 func (s Store) Write(r protocol.Result) error        { return s.WriteTarget(r) }
 
 func (s Store) ReadControl(id string) Control {
-	b, err := os.ReadFile(s.ControlPath(id))
+	b, err := readCacheRecord(s.ControlPath(id))
 	if err != nil {
 		return Control{}
 	}
@@ -144,8 +184,11 @@ func (s Store) ReadControl(id string) Control {
 }
 
 func (s Store) InspectControl(id string) (Control, RecordState) {
-	b, err := os.ReadFile(s.ControlPath(id))
+	b, err := readCacheRecord(s.ControlPath(id))
 	if err != nil {
+		if invalidCacheRecordError(err) {
+			return Control{}, RecordCorrupt
+		}
 		if os.IsNotExist(err) {
 			return Control{}, RecordMissing
 		}
@@ -169,8 +212,11 @@ func (s Store) ReadRefresh(id string) (RefreshRecord, bool) {
 }
 
 func (s Store) InspectRefresh(id string) (RefreshRecord, RecordState) {
-	b, err := os.ReadFile(s.RefreshPath(id))
+	b, err := readCacheRecord(s.RefreshPath(id))
 	if err != nil {
+		if invalidCacheRecordError(err) {
+			return RefreshRecord{}, RecordCorrupt
+		}
 		if os.IsNotExist(err) {
 			return RefreshRecord{}, RecordMissing
 		}

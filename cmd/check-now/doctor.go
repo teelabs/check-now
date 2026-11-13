@@ -82,6 +82,13 @@ func doctorDuration(name string, fallback time.Duration) (time.Duration, app.Fin
 	duration, err := time.ParseDuration(value)
 	if err != nil {
 		if hours, numberErr := strconv.Atoi(value); numberErr == nil {
+			if hours < 0 {
+				return fallback, app.Finding{Component: "settings." + strings.ToLower(strings.TrimPrefix(name, "CHECK_NOW_")), Status: "error", Summary: "The duration setting must be positive.", Repair: "Set the setting to a positive duration such as 5s or 24h."}
+			}
+			maxHours := int64(^uint64(0)>>1) / int64(time.Hour)
+			if int64(hours) > maxHours {
+				return fallback, app.Finding{Component: "settings." + strings.ToLower(strings.TrimPrefix(name, "CHECK_NOW_")), Status: "error", Summary: "The duration setting is too large.", Repair: "Set the setting to a positive duration such as 5s or 24h."}
+			}
 			duration = time.Duration(hours) * time.Hour
 		} else {
 			return fallback, app.Finding{Component: "settings." + strings.ToLower(strings.TrimPrefix(name, "CHECK_NOW_")), Status: "error", Summary: "The duration setting is invalid.", Repair: "Set the setting to a positive duration such as 5s or 24h."}

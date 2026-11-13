@@ -17,7 +17,7 @@ _check_now_complete() {
     COMPREPLY=( $(compgen -W "$plugins" -- "$cur") )
   elif [[ "\${COMP_WORDS[1]}" == plugin && "\${COMP_WORDS[2]}" == create ]]; then
     if [[ "$prev" == --runtime ]]; then COMPREPLY=( $(compgen -W "shell" -- "$cur") )
-    elif [[ "$prev" == --capability ]]; then COMPREPLY=( $(compgen -W "current refresh" -- "$cur") )
+    elif [[ "$prev" == --capability ]]; then COMPREPLY=( $(compgen -W "current refresh health" -- "$cur") )
     else COMPREPLY=( $(compgen -W "$flags $plugins" -- "$cur") ); fi
   fi
 }

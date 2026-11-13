@@ -1,6 +1,10 @@
 package protocol
 
-import "testing"
+import (
+	"encoding/json"
+	"strconv"
+	"testing"
+)
 
 func TestDecodeRejectsUnsupportedVersionAndMissingFields(t *testing.T) {
 	if _, err := DecodeResult([]byte(`{"protocol":1,"id":"node","status":"up_to_date","tool":"Node","checked_at":"2026-01-01T00:00:00Z"}`)); err == nil {
@@ -92,5 +96,19 @@ func TestDecodeHealthRejectsInvalidChecks(t *testing.T) {
 		if _, err := DecodeHealth([]byte(data)); err == nil {
 			t.Fatalf("invalid health accepted: %s", data)
 		}
+	}
+}
+
+func TestDecodeHealthRejectsTooManyChecks(t *testing.T) {
+	checks := make([]HealthCheck, 65)
+	for i := range checks {
+		checks[i] = HealthCheck{Code: "check." + strconv.Itoa(i), Status: "ok", Summary: "Check passed."}
+	}
+	data, err := json.Marshal(Health{Protocol: Version, ID: "tool", CheckedAt: "2026-01-01T00:00:00Z", Checks: checks})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DecodeHealth(data); err == nil {
+		t.Fatal("health response with more than 64 checks accepted")
 	}
 }

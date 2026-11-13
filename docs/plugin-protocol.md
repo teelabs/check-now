@@ -12,7 +12,7 @@ The refresh form uses the same envelope and may include configuration and the la
 
 `metadata` returns `protocol`, `id`, `name`, `description`, `runtime`, and `capabilities`, with optional `tool`, `source_url`, and `manager`. Every adapter must advertise `current`, `refresh`, and `health`; the host requires the metadata ID to equal the plugin folder ID.
 
-`health` performs offline checks of local adapter configuration and prerequisites. It must not contact update sources, change configuration, or include arbitrary environment values or secrets in its output. The response has `protocol`, `id`, RFC3339 `checked_at`, and a non-empty `checks` array. Each check has a stable `code`, `status` (`ok`, `warning`, or `error`), and short `summary`, with optional `repair` guidance:
+`health` performs offline checks of local adapter configuration and prerequisites. It must not contact update sources, change configuration, or include arbitrary environment values or secrets in its output. The response has `protocol`, `id`, RFC3339 `checked_at`, and a non-empty `checks` array with at most 64 entries. Each check has a stable `code`, `status` (`ok`, `warning`, or `error`), and short `summary`, with optional `repair` guidance:
 
 ```json
 {"protocol":2,"id":"example","checked_at":"2026-01-01T00:00:00Z","checks":[{"code":"command.available","status":"warning","summary":"The local command was not found on PATH.","repair":"Install the tool or correct PATH."}]}
