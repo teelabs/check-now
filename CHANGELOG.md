@@ -4,6 +4,10 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Dispatch Cloudflare Pages deployment from the validated release workflow.
+
 ## [0.2.0] - 2026-11-12
 
 ### Added
