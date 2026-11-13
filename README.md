@@ -32,10 +32,12 @@ check-now doctor
 check-now plugin create <id>
 ```
 
-Use another prefix with `CHECK_NOW_PREFIX=/opt/check-now ./install.sh --install`. The installer detects the current shell and reports its profile, but shell integration is opt-in. To install and add the hook automatically:
+Use another prefix with `CHECK_NOW_PREFIX=/opt/check-now ./install.sh --install`. Shell integration is opt-in. When requested, the installer discovers an existing startup file and asks before changing it. If the detected file is wrong, answer `n` and enter the correct path. If no path is supplied, the binary remains installed and shell integration is skipped.
+
+To select the startup file directly, including in noninteractive installs, use `--rc-file`:
 
 ```sh
-./install.sh --install --shell-hook
+./install.sh --install --shell zsh --shell-hook --rc-file "$HOME/.config/zsh/.zshrc"
 ```
 
 Install and activate native completion alongside the update-check hook:
@@ -58,7 +60,15 @@ Install or upgrade a pinned version and choose another prefix:
 curl -fsSL https://check-now.pages.dev/install.sh | sh -s -- --version 0.3.1 --prefix "$HOME/.local"
 ```
 
-Shell integration remains opt-in. Add `--shell-hook` for the detected shell, or `--shell bash --shell-hook --shell-completion` to configure Bash explicitly. The installer supports hook setup for Bash, Zsh, Fish, Ksh, and Dash, with completion for Bash, Zsh, and Fish. Add the chosen prefix's `bin` directory (by default, `~/.local/bin`) to `PATH` if it is not already present.
+Shell integration remains opt-in. The installer discovers a startup-file candidate for the selected shell and asks you to confirm it before editing. Zsh resolution uses Zsh startup configuration, including a custom `ZDOTDIR`; Bash, Fish, Ksh, and Dash use their shell-specific configuration paths and environment settings. The source installer also resolves PowerShell's `$PROFILE`. Answer `n` to enter another path. For unattended installs, pass `--rc-file PATH`; the supplied path is treated as your selection. If no path is confirmed, the binary is installed without hooks or completions, and the installer explains how to rerun setup.
+
+For example, this installs the latest release, update hook, and Zsh completions, then confirms the discovered profile before editing it:
+
+```sh
+curl -fsSL https://check-now.pages.dev/install.sh | sh -s -- --version latest --prefix "$HOME/.local" --shell zsh --shell-hook --shell-completion
+```
+
+To avoid a prompt, provide the startup file explicitly with `--rc-file "$HOME/.config/zsh/.zshrc"`. After successful setup, the installer prints whether the hook and completion activation were added or already present, the completion script location, and a reminder to reload the profile or start a new shell. The installer supports hooks for Bash, Zsh, Fish, Ksh, and Dash, with completions for Bash, Zsh, and Fish. Add the chosen prefix's `bin` directory (by default, `~/.local/bin`) to `PATH` if it is not already present.
 
 The `check-now version` command prints the installed release version. Source builds and the local `install.sh` workflow remain available.
 
@@ -80,7 +90,7 @@ The hook only runs in interactive shells, remains silent when `check-now` is una
 - Fish: `echo "source '$HOME/.local/share/check-now/check-now.fish'" >> ~/.config/fish/config.fish`
 - PowerShell: add `check-now shell | Out-Host` to `$PROFILE` when the executable is in `PATH`; the POSIX hook is not sourced by PowerShell.
 
-The installer can add Bash/Zsh/Ksh/Dash/Fish hooks with `--shell-hook`. With `--shell-completion`, it installs static scripts under `$PREFIX/share/check-now/completions/` and activates them with a separate idempotent profile marker. PowerShell completion resolves `$PROFILE` using `pwsh` or `powershell`.
+The installers can add Bash/Zsh/Ksh/Dash/Fish hooks with `--shell-hook`; the source installer also adds `check-now shell | Out-Host` to the confirmed PowerShell `$PROFILE`. The source installer supports completion for Bash, Zsh, Fish, and PowerShell; the release installer supports Bash, Zsh, and Fish. Both write static scripts under `$PREFIX/share/check-now/completions/` and activate them with a separate idempotent profile marker. PowerShell completion resolves `$PROFILE` using `pwsh` or `powershell`.
 
 ## Commands
 

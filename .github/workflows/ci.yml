@@ -37,8 +37,9 @@ jobs:
       - name: Run plugin and shell checks
         run: |
           make test-plugins
-          sh -n install.sh check-now.sh plugins/test.sh distribution/install.sh distribution/install-rollback-test.sh scripts/build-release.sh scripts/verify-release.sh
+          sh -n install.sh check-now.sh plugins/test.sh distribution/install.sh distribution/install-rollback-test.sh distribution/install-shell-setup-test.sh scripts/build-release.sh scripts/verify-release.sh
           distribution/install-rollback-test.sh
+          distribution/install-shell-setup-test.sh
           bash -n internal/completion/scripts/bash
           if command -v zsh >/dev/null 2>&1; then zsh -n internal/completion/scripts/zsh; fi
 

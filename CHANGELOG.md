@@ -4,6 +4,12 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-11-13
+
+### Fixed
+
+- Installers now discover and confirm shell startup files before adding hooks or completions, accept an explicit `--rc-file`, and report setup paths and outcomes. The source installer also configures the documented PowerShell update hook in the confirmed `$PROFILE`.
+
 ## [0.3.1] - 2026-11-13
 
 ### Fixed
