@@ -7,25 +7,168 @@ VERSION=latest
 SHELL_HOOK=false
 SHELL_COMPLETION=false
 SHELL_NAME=auto
+RC_FILE=
 
 usage() {
   cat <<'EOF'
 Usage: install.sh [--version latest|X.Y.Z] [--prefix DIR]
                   [--shell NAME] [--shell-hook] [--shell-completion]
+                  [--rc-file PATH]
 
 Downloads a prebuilt Linux release from GitHub and verifies its SHA-256 checksum.
 Supported targets are Linux amd64 and arm64. The default prefix is ~/.local.
 Shell integration is optional and never runs an update command.
+The installer discovers a profile candidate and asks before changing it.
+Use --rc-file PATH to select a profile directly, including in scripts.
 EOF
 }
 
 die() { printf 'check-now installer: %s\n' "$*" >&2; exit 1; }
+
+discover_profile() {
+  profile_candidates=
+  candidate=
+  case "$SHELL_NAME" in
+    zsh)
+      if command -v zsh >/dev/null 2>&1; then
+        candidate=$(zsh -c 'printf "CHECK_NOW_PROFILE=%s/.zshrc\n" "${ZDOTDIR:-$HOME}"' 2>/dev/null | sed -n 's/^CHECK_NOW_PROFILE=//p' | tail -n 1 || true)
+        [ -n "$candidate" ] && [ -f "$candidate" ] && add_profile_candidate "$candidate"
+      elif [ -n "${ZDOTDIR:-}" ] && [ -f "$ZDOTDIR/.zshrc" ]; then
+        add_profile_candidate "$ZDOTDIR/.zshrc"
+      elif [ -f "${HOME:-}/.zshrc" ]; then
+        add_profile_candidate "$HOME/.zshrc"
+      fi ;;
+    bash)
+      if [ -f "${HOME:-}/.bashrc" ]; then
+        add_profile_candidate "$HOME/.bashrc"
+      else
+        for candidate in "${HOME:-}/.bash_profile" "${HOME:-}/.bash_login" "${HOME:-}/.profile"; do
+          if [ -f "$candidate" ]; then add_profile_candidate "$candidate"; break; fi
+        done
+      fi ;;
+    fish)
+      candidate=${XDG_CONFIG_HOME:-"${HOME:-}/.config"}/fish/config.fish
+      [ -f "$candidate" ] && add_profile_candidate "$candidate" ;;
+    ksh|mksh|dash|sh)
+      if [ -n "${ENV:-}" ] && [ -f "$ENV" ]; then add_profile_candidate "$ENV"
+      elif [ -f "${HOME:-}/.profile" ]; then add_profile_candidate "$HOME/.profile"
+      fi ;;
+    powershell)
+      if command -v pwsh >/dev/null 2>&1; then psbin=pwsh
+      elif command -v powershell >/dev/null 2>&1; then psbin=powershell
+      else psbin=; fi
+      if [ -n "$psbin" ]; then
+        candidate=$($psbin -NoProfile -Command 'Write-Output "CHECK_NOW_PROFILE=$PROFILE"' 2>/dev/null | sed -n 's/^CHECK_NOW_PROFILE=//p' | tail -n 1 || true)
+        [ -n "$candidate" ] && [ -f "$candidate" ] && add_profile_candidate "$candidate"
+      fi ;;
+  esac
+}
+
+add_profile_candidate() {
+  case "$1" in *'
+'*) return ;; esac
+  if printf '%s\n' "$profile_candidates" | grep -Fqx "$1"; then return; fi
+  if [ -n "$profile_candidates" ]; then profile_candidates="$profile_candidates
+$1"
+  else profile_candidates=$1
+  fi
+}
+
+prompt_value() {
+  prompt_text=$1
+  [ -r /dev/tty ] && [ -w /dev/tty ] || return 1
+  printf '%s' "$prompt_text" >/dev/tty
+  IFS= read -r prompt_value </dev/tty || { prompt_value=; return 1; }
+  return 0
+}
+
+resolve_profile() {
+  profile=$RC_FILE
+  if [ -n "$profile" ]; then
+    if ! normalize_profile_path; then
+      printf 'Profile path must name a regular file or a path that does not exist yet; multiline values are not allowed.\n'
+      profile=
+      return 1
+    fi
+    return 0
+  fi
+
+  discover_profile
+  candidate_count=$(printf '%s\n' "$profile_candidates" | awk 'NF { count++ } END { print count+0 }')
+  case "$candidate_count" in
+    1)
+      candidate=$profile_candidates
+      printf 'Discovered shell profile: %s\n' "$candidate"
+      if ! prompt_value 'Use this profile? [Y/n] '; then profile=; return 1; fi
+      case "$prompt_value" in
+        ''|y|Y|yes|YES|Yes) profile=$candidate; return 0 ;;
+        n|N|no|NO|No) ;;
+        *) printf 'Profile not confirmed.\n' ;;
+      esac
+      ;;
+    0)
+      printf 'Could not discover an existing profile for %s.\n' "$SHELL_NAME"
+      ;;
+    *)
+      printf 'Found multiple possible %s profile files:\n%s\n' "$SHELL_NAME" "$profile_candidates"
+      ;;
+  esac
+
+  if ! prompt_value 'Enter the shell profile path (leave blank to skip integration): '; then profile=; return 1; fi
+  profile=$prompt_value
+  [ -n "$profile" ] || return 1
+  if ! normalize_profile_path; then
+    printf 'Profile path must name a regular file or a path that does not exist yet; multiline values are not allowed.\n'
+    profile=
+    return 1
+  fi
+  return 0
+}
+
+normalize_profile_path() {
+  case "$profile" in
+    '~') profile=${HOME:-} ;;
+    '~/'*) profile=${HOME:-}/${profile#\~/} ;;
+  esac
+  case "$profile" in *'
+'*) return 1 ;; esac
+  case "$profile" in /*) ;; *) profile=$PWD/$profile ;; esac
+  { [ ! -e "$profile" ] && [ ! -L "$profile" ]; } || [ -f "$profile" ]
+}
+
+quote_shell_path() {
+  printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
+}
+
+ensure_profile_entry() {
+  entry_marker=$1
+  entry_line=$2
+  entry_state=already
+  mkdir -p "$(dirname "$profile")"
+  touch "$profile"
+  if ! grep -Fqx "$entry_marker" "$profile" 2>/dev/null; then
+    append_profile_line "$entry_marker"
+    entry_state=added
+  fi
+  if ! grep -Fqx "$entry_line" "$profile" 2>/dev/null; then
+    append_profile_line "$entry_line"
+    entry_state=added
+  fi
+}
+
+append_profile_line() {
+  if [ -s "$profile" ] && [ -n "$(tail -c 1 "$profile")" ]; then
+    printf '\n' >>"$profile"
+  fi
+  printf '%s\n' "$1" >>"$profile"
+}
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --version) [ "$#" -ge 2 ] || die '--version requires latest or X.Y.Z'; VERSION=$2; shift 2 ;;
     --prefix) [ "$#" -ge 2 ] || die '--prefix requires a directory'; PREFIX=$2; shift 2 ;;
     --shell) [ "$#" -ge 2 ] || die '--shell requires a name'; SHELL_NAME=$2; shift 2 ;;
+    --rc-file) [ "$#" -ge 2 ] && [ -n "$2" ] || die '--rc-file requires a path'; RC_FILE=$2; shift 2 ;;
     --shell-hook) SHELL_HOOK=true; shift ;;
     --shell-completion) SHELL_COMPLETION=true; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -47,6 +190,9 @@ if [ "$SHELL_HOOK" = true ] && [ "$SHELL_NAME" = powershell ]; then
   die 'PowerShell hook setup is not supported; add check-now shell to $PROFILE manually'
 fi
 if [ "$SHELL_HOOK" = true ] && [ "$SHELL_NAME" = sh ]; then SHELL_NAME=dash; fi
+if [ -n "$RC_FILE" ] && [ "$SHELL_HOOK" != true ] && [ "$SHELL_COMPLETION" != true ]; then
+  die '--rc-file requires --shell-hook or --shell-completion'
+fi
 
 case "$VERSION" in
   latest) release=latest ;;
@@ -154,32 +300,42 @@ trap - EXIT HUP INT TERM
 rm -rf "$backup"
 trap 'rm -rf "$stage" "$backup" "$temp"' EXIT HUP INT TERM
 
-if [ "$SHELL_HOOK" = true ]; then
-  case "$SHELL_NAME" in
-    bash) profile=${BASH_ENV:-"${HOME:-}/.bashrc"} ;;
-    zsh) profile=${ZDOTDIR:-"${HOME:-}"}/.zshrc ;;
-    fish) profile=${XDG_CONFIG_HOME:-"${HOME:-}/.config"}/fish/config.fish ;;
-    ksh|mksh|dash) profile=${HOME:-}/.profile ;;
-  esac
-  mkdir -p "$(dirname "$profile")"
-  marker='# check-now shell integration'
-  if ! grep -Fqx "$marker" "$profile" 2>/dev/null; then
-    case "$SHELL_NAME" in fish) hook="source '$PREFIX/share/check-now/check-now.fish'" ;; *) hook=". '$PREFIX/share/check-now/check-now.sh'" ;; esac
-    { printf '\n%s\n%s\n' "$marker" "$hook"; } >>"$profile"
-  fi
-fi
+if [ "$SHELL_HOOK" = true ] || [ "$SHELL_COMPLETION" = true ]; then
+  if resolve_profile; then
+    case "$SHELL_NAME" in
+      fish) hook_file=$PREFIX/share/check-now/check-now.fish; hook="source $(quote_shell_path "$hook_file")" ;;
+      powershell) hook_file=; hook= ;;
+      *) hook_file=$PREFIX/share/check-now/check-now.sh; hook=". $(quote_shell_path "$hook_file")" ;;
+    esac
+    if [ "$SHELL_HOOK" = true ] && [ -n "$hook" ]; then
+      ensure_profile_entry '# check-now shell integration' "$hook"
+      printf 'Shell hook script: %s\n' "$hook_file"
+      if [ "$entry_state" = added ]; then printf 'Shell hook added to %s\n' "$profile"
+      else printf 'Shell hook already present in %s\n' "$profile"; fi
+    fi
 
-if [ "$SHELL_COMPLETION" = true ]; then
-  completion_dir=$PREFIX/share/check-now/completions
-  mkdir -p "$completion_dir"
-  case "$SHELL_NAME" in
-    bash) "$PREFIX/bin/check-now" completion bash >"$completion_dir/check-now.bash"; profile=${BASH_ENV:-"${HOME:-}/.bashrc"}; activation=". '$completion_dir/check-now.bash'" ;;
-    zsh) "$PREFIX/bin/check-now" completion zsh >"$completion_dir/_check-now"; profile=${ZDOTDIR:-"${HOME:-}"}/.zshrc; activation="fpath=('$completion_dir' \$fpath); autoload -Uz compinit && compinit; autoload -Uz _check-now; compdef _check-now check-now" ;;
-    fish) "$PREFIX/bin/check-now" completion fish >"$completion_dir/check-now.fish"; profile=${XDG_CONFIG_HOME:-"${HOME:-}/.config"}/fish/config.fish; activation="source '$completion_dir/check-now.fish'" ;;
-  esac
-  mkdir -p "$(dirname "$profile")"
-  marker='# check-now shell completion'
-  if ! grep -Fqx "$marker" "$profile" 2>/dev/null; then printf '\n%s\n%s\n' "$marker" "$activation" >>"$profile"; fi
+    if [ "$SHELL_COMPLETION" = true ]; then
+      completion_dir=$PREFIX/share/check-now/completions
+      mkdir -p "$completion_dir"
+      case "$SHELL_NAME" in
+        bash) completion_file=$completion_dir/check-now.bash; activation=". $(quote_shell_path "$completion_file")" ;;
+        zsh) completion_file=$completion_dir/_check-now; activation="fpath=($(quote_shell_path "$completion_dir") \$fpath); autoload -Uz compinit && compinit; autoload -Uz _check-now; compdef _check-now check-now" ;;
+        fish) completion_file=$completion_dir/check-now.fish; activation="source $(quote_shell_path "$completion_file")" ;;
+        *) completion_file=$completion_dir/check-now.ps1; activation=". $(quote_shell_path "$completion_file")" ;;
+      esac
+      "$PREFIX/bin/check-now" completion "$SHELL_NAME" >"$completion_file"
+      printf 'Completion script installed at %s\n' "$completion_file"
+      ensure_profile_entry '# check-now shell completion' "$activation"
+      if [ "$entry_state" = added ]; then printf 'Shell completion activation added to %s\n' "$profile"
+      else printf 'Shell completion activation already present in %s\n' "$profile"; fi
+    fi
+    printf 'Start a new shell or reload %s to use the changes.\n' "$profile"
+  else
+    printf 'No shell profile was confirmed; shell hook and completions were not installed.\n'
+    printf 'Run the installer again with --rc-file PATH and the same shell setup options for full configuration.\n'
+  fi
+else
+  printf 'Shell hook and completions were not requested; shell profile files were not changed.\n'
 fi
 
 installed_version=$(cat "$PREFIX/share/check-now/VERSION")
